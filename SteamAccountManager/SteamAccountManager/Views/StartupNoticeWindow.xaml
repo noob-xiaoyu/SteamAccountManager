@@ -1,0 +1,25 @@
+﻿<!-- Views/StartupNoticeWindow.xaml -->
+<Window x:Class="SteamAccountManager.Views.StartupNoticeWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="欢迎使用" Height="200" Width="400"
+        WindowStartupLocation="CenterScreen" ResizeMode="NoResize" Background="#2D2D30">
+    <Grid Margin="15">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" TextWrapping="Wrap" Foreground="White" VerticalAlignment="Center">
+            欢迎使用 Steam 账号管理器！
+            <LineBreak/>
+            <LineBreak/>
+            本工具以明文形式存储您的账号密码，请在私人电脑上使用，并注意安全。
+        </TextBlock>
+
+        <CheckBox x:Name="DoNotShowAgainCheckBox" Grid.Row="1" Content="不再显示此消息" Foreground="Gray" Margin="0,10,0,0"/>
+
+        <Button Grid.Row="2" Content="确定" Width="100" Height="30" HorizontalAlignment="Right" Margin="0,10,0,0" Click="OkButton_Click" IsDefault="True"/>
+    </Grid>
+</Window>

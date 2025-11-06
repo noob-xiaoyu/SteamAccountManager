@@ -1,0 +1,33 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <ApplicationIcon>other\ico\icon.ico</ApplicationIcon>
+    <Version>$(VersionPrefix)1.0.1</Version>
+    <Authors>$()Hosino_xiaoyu</Authors>
+    <PackageProjectUrl>https://github.com/noob-xiaoyu/SteamAccountManager</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/noob-xiaoyu/SteamAccountManager</RepositoryUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="other\ico\icon.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+    <PackageReference Include="SteamGuard.TOTP" Version="1.0.0" />
+  </ItemGroup>
+
+</Project>

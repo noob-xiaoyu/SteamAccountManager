@@ -1,0 +1,34 @@
+﻿<!-- Views/BulkAddWindow.xaml -->
+<Window x:Class="SteamAccountManager.Views.BulkAddWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="批量添加账号" Height="400" Width="500"
+        WindowStartupLocation="CenterOwner" Background="#2D2D30" Foreground="White">
+    <Grid Margin="15">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- 更新这里的说明文字 -->
+        <TextBlock TextWrapping="Wrap">
+            请按以下格式粘贴账号信息，每行一个账号:
+            <LineBreak/>
+            <Run FontWeight="Bold">用户名----密码----其他信息(可选)</Run>
+            <LineBreak/>
+            分隔符是 "----" ","。
+            <LineBreak/>
+            密码之后的所有内容都会被当作“其他信息”保存。
+        </TextBlock>
+
+        <TextBox x:Name="AccountsTextBox" Grid.Row="1" Margin="0,10"
+                 AcceptsReturn="True" VerticalScrollBarVisibility="Auto"
+                 TextWrapping="NoWrap" FontFamily="Consolas"/>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="确定" Width="80" Height="30" IsDefault="True" Click="OkButton_Click"/>
+            <Button Content="取消" Width="80" Height="30" IsCancel="True" Margin="10,0,0,0"/>
+        </StackPanel>
+    </Grid>
+</Window>
