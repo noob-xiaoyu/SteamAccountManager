@@ -35,7 +35,7 @@
 ### 获取并设置 Steam API Key
 
 为了使用“更新昵称”和“更新封禁状态(无法获取时间)”功能，您需要一个 Steam Web API 密钥。
-1.  **[获取Steam API](https://github.com/noob-xiaoyu/SteamAccount/blob/main/Get-Steam-API/Get_Steam-API.md)
+1.  **[获取Steam API](./Get-Steam-API/Get_Steam-API.md)
 
 ## 📦 项目结构
 
