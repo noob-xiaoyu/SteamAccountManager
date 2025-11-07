@@ -49,33 +49,27 @@ namespace SteamAccountManager.ViewModels
             }
             else
             {
-                // --- 编辑现有账号模式 ---
-                // 创建一个副本进行编辑，以支持取消操作
                 Account = new Account
                 {
                     Id = accountToEdit.Id,
                     Username = accountToEdit.Username,
                     Password = accountToEdit.Password,
                     SteamID64 = accountToEdit.SteamID64,
-                    Nickname = accountToEdit.Nickname, // 统一使用 Nickname
-                    Status = accountToEdit.Status, // 复制 Status
-                    CooldownExpiryDate = accountToEdit.CooldownExpiryDate, // 复制 CooldownExpiryDate
-                    IsPrime = accountToEdit.IsPrime,
+                    Nickname = accountToEdit.Nickname,
                     Email = accountToEdit.Email,
-                    EmailPassword = accountToEdit.EmailPassword
+                    EmailPassword = accountToEdit.EmailPassword,
+
+                    Cs2PrimeStatus = accountToEdit.Cs2PrimeStatus,
+                    Cs2BanStatus = accountToEdit.Cs2BanStatus,
+                    Cs2CooldownExpiry = accountToEdit.Cs2CooldownExpiry,
+                    IsVacBanned = accountToEdit.IsVacBanned
                 };
                 WindowTitle = "编辑账号";
-
-                // 根据 CooldownExpiryDate 初始化 CooldownDays 和 CooldownHours
-                InitializeCooldownTime(accountToEdit.CooldownExpiryDate);
+                InitializeCooldownTime(accountToEdit.Cs2CooldownExpiry);
             }
 
             SaveCommand = new RelayCommand(Save);
         }
-
-        /// <summary>
-        /// 根据现有的冷却截止日期，反向计算出剩余的天数和小时数，用于在 UI 上显示。
-        /// </summary>
         private void InitializeCooldownTime(DateTime? expiryDate)
         {
             if (expiryDate.HasValue)
@@ -89,9 +83,6 @@ namespace SteamAccountManager.ViewModels
             }
         }
 
-        /// <summary>
-        /// 当用户点击“确定”按钮时执行的保存逻辑。
-        /// </summary>
         private void Save(object parameter)
         {
             // 1. 数据验证
@@ -107,24 +98,17 @@ namespace SteamAccountManager.ViewModels
             }
 
             // 2. 核心逻辑：处理冷却时间
-            if (Account.Status == "冷却")
+            if (Account.Cs2BanStatus == "冷却")
             {
-                // 使用 .GetValueOrDefault() 方法，如果 CooldownDays 是 null，它会返回 0
                 int days = CooldownDays.GetValueOrDefault();
                 int hours = CooldownHours.GetValueOrDefault();
-
-                if (days > 0 || hours > 0)
-                {
-                    Account.CooldownExpiryDate = DateTime.Now.AddDays(days).AddHours(hours);
-                }
-                else
-                {
-                    Account.CooldownExpiryDate = null;
-                }
+                Account.Cs2CooldownExpiry = (days > 0 || hours > 0)
+                    ? DateTime.Now.AddDays(days).AddHours(hours)
+                    : (DateTime?)null;
             }
             else
             {
-                Account.CooldownExpiryDate = null;
+                Account.Cs2CooldownExpiry = null;
             }
 
             // 3. 关闭窗口并返回成功

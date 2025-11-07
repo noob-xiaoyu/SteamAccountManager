@@ -159,7 +159,7 @@
                         <MenuItem Header="🛡️更新状态 (API)🛡️" Command="{Binding UpdateStatusCommand}"/>
                         <MenuItem Header="🔄更新昵称 (API)🔄" Command="{Binding BatchUpdateNicknameCommand}"/>
                         <Separator/>
-                        <MenuItem Header="🗑️⚠️删除选中账号⚠️🗑️" Command="{Binding DeleteAccountCommand}" CommandParameter="{Binding ElementName=AccountsGrid, Path=SelectedItems}"/>
+                        <MenuItem Header="🗑️⚠️删除选中账号⚠️🗑️" Command="{Binding DeleteAccountCommand}"/>
                         
                     </ContextMenu>
                 </DataGrid.ContextMenu>
@@ -179,7 +179,7 @@
                 </DataGrid.RowStyle>
                 <DataGrid.Columns>
                     <DataGridTextColumn Header="用户名" Binding="{Binding Username}" Width="auto"/>
-                    <DataGridCheckBoxColumn Header="二级" Binding="{Binding IsPrime}" Width="auto"/>
+                    <DataGridTextColumn Header="二级" Binding="{Binding Cs2PrimeStatus}" Width="80"/>
                     <DataGridTextColumn Header="状态" Binding="{Binding DisplayStatus}"  Width="auto"/>
                     <DataGridTextColumn Header="备注 / 其他信息" Binding="{Binding Nickname}" Width="auto"/>
                     <DataGridTextColumn Header="SteamID64" Binding="{Binding SteamID64}" Width="auto"/>

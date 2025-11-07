@@ -55,26 +55,26 @@
         <TextBox Text="{Binding Account.Nickname, UpdateSourceTrigger=PropertyChanged}" Grid.Row="3" Grid.Column="1" Margin="0,5,0,5"/>
 
         <!-- [核心改动] 添加状态选择框 -->
-        <TextBlock Text="状态:" Grid.Row="4" Grid.Column="0" Margin="0,8,10,8" VerticalAlignment="Stretch"/>
-        <ComboBox SelectedItem="{Binding Account.Status}" Grid.Row="4" Grid.Column="1" Margin="0,5,0,5">
+        <TextBlock Text="封禁状态:" Grid.Row="4" Grid.Column="0"/>
+        <ComboBox Name="StatusComboBox" SelectedItem="{Binding Account.Cs2BanStatus}" Grid.Row="4" Grid.Column="1">
             <sys:String>正常</sys:String>
             <sys:String>冷却</sys:String>
             <sys:String>VAC</sys:String>
-            <sys:String>未知</sys:String>
-            <!-- 保留一个 "未知" 选项 -->
         </ComboBox>
 
         <TextBlock Text="冷却时间:" Grid.Row="5" Grid.Column="0" Visibility="{Binding ElementName=StatusComboBox, Path=SelectedItem, Converter={StaticResource StringToVisibilityConverter}, ConverterParameter=冷却}"/>
-        <StackPanel Grid.Row="5" Grid.Column="1" Orientation="Horizontal" Visibility="{Binding ElementName=StatusComboBox, Path=SelectedItem, Converter={StaticResource StringToVisibilityConverter}, ConverterParameter=冷却}">
-            <TextBlock Text="天:" VerticalAlignment="Center" Margin="0,5,5,5"/>
-            <TextBox Text="{Binding CooldownDays, UpdateSourceTrigger=PropertyChanged}" Width="50" Margin="0,5,5,5"/>
-            <TextBlock Text="小时:" VerticalAlignment="Center" Margin="0,5,5,5"/>
-            <TextBox Text="{Binding CooldownHours, UpdateSourceTrigger=PropertyChanged}" Width="50" Margin="0,5,5,5"/>
+        <StackPanel Grid.Row="5" Grid.Column="1" Orientation="Horizontal"  Visibility="{Binding ElementName=StatusComboBox, Path=SelectedItem, Converter={StaticResource StringToVisibilityConverter}, ConverterParameter=冷却}">
+            <TextBox Text="{Binding CooldownDays, UpdateSourceTrigger=PropertyChanged, TargetNullValue=''}" Width="50" Margin="10,5,5,5"/>
+            <TextBlock Text="天" VerticalAlignment="Center" HorizontalAlignment="Left"/>
+            <TextBox Text="{Binding CooldownHours, UpdateSourceTrigger=PropertyChanged, TargetNullValue=''}" Width="50" Margin="10,5,5,5"/>
+            <TextBlock Text="小时" VerticalAlignment="Center" HorizontalAlignment="Left"/>
         </StackPanel>
 
-        <TextBlock Text="Prime 状态:" Grid.Row="6" Grid.Column="0" VerticalAlignment="Center"/>
-        <CheckBox IsChecked="{Binding Account.IsPrime}" Grid.Row="6" Grid.Column="1" 
-              VerticalAlignment="Center" Foreground="White" Content="是 Prime 账号"/>
+        <TextBlock Text="Prime 状态:" Grid.Row="6" Grid.Column="0"/>
+        <ComboBox SelectedItem="{Binding Account.Cs2PrimeStatus}" Grid.Row="6" Grid.Column="1">
+            <sys:String>是</sys:String>
+            <sys:String>需升级</sys:String>
+        </ComboBox>
 
         <!-- 按钮 -->
         <StackPanel Grid.Row="8" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,15,0,0" Grid.Column="1" Width="170">

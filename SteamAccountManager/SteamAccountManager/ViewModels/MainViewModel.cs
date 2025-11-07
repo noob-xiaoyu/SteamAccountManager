@@ -20,8 +20,10 @@ namespace SteamAccountManager.ViewModels
 {
     public class MainViewModel : INotifyPropertyChanged
     {
-        
+
         // --- 核心数据与UI绑定属性 ---
+        public Account Account { get; set; }
+        public bool IsCooldownControlsVisible => Account?.Cs2BanStatus == "冷却";
         public ObservableCollection<Account> Accounts { get; set; }
         public ICollectionView AccountsView { get; private set; }
         private DispatcherTimer _cooldownCheckTimer;
@@ -66,11 +68,19 @@ namespace SteamAccountManager.ViewModels
 
         private void RebuildAccountsView()
         {
+            // 1. 基于当前的 Accounts 集合创建一个新的 CollectionViewSource
             var source = new CollectionViewSource { Source = Accounts };
-            source.SortDescriptions.Add(new SortDescription(nameof(Account.IsPrime), ListSortDirection.Descending));
+
+            // 2. 为这个新的 Source 添加排序规则
+            source.SortDescriptions.Add(new SortDescription(nameof(Account.Cs2PrimeStatus), ListSortDirection.Descending));
             source.SortDescriptions.Add(new SortDescription(nameof(Account.SortPriority), ListSortDirection.Ascending));
+
+            // 3. 将 AccountsView 属性指向这个全新的、健康的视图
             AccountsView = source.View;
-            OnPropertyChanged(nameof(AccountsView)); // 通知 UI 视图已更新
+
+            // 4. [关键] 通知 UI，AccountsView 这个属性本身已经发生了变化
+            //    DataGrid 会因此重新获取它的 ItemsSource，并绑定到这个新视图上
+            OnPropertyChanged(nameof(AccountsView));
         }
         public MainViewModel()
         {
@@ -86,25 +96,28 @@ namespace SteamAccountManager.ViewModels
             BulkAddCommand = new RelayCommand(BulkAdd);
 
             Accounts = new ObservableCollection<Account>(_dataService.LoadAccounts());
-
-            var source = new CollectionViewSource { Source = Accounts };
-
-            source.SortDescriptions.Add(new SortDescription(nameof(Account.IsPrime), ListSortDirection.Descending));
-            source.SortDescriptions.Add(new SortDescription(nameof(Account.SortPriority), ListSortDirection.Ascending));
-
-            AccountsView = source.View;
-
-            Accounts.CollectionChanged += (s, e) =>
-            {
-                if (AccountsView != null)
-                {
-                    AccountsView.Refresh();
-                }
-            };
-
+            RebuildAccountsView();
             InitializeCooldownChecker();
             LoadSettings();
+            //var source = new CollectionViewSource { Source = Accounts };
+
+            //source.SortDescriptions.Add(new SortDescription(nameof(Account.IsPrime), ListSortDirection.Descending));
+            //source.SortDescriptions.Add(new SortDescription(nameof(Account.SortPriority), ListSortDirection.Ascending));
+
+            //AccountsView = source.View;
+
+            //Accounts.CollectionChanged += (s, e) =>
+            //{
+            //    if (AccountsView != null)
+            //    {
+            //        AccountsView.Refresh();
+            //    }
+            //};
+
+
         }
+
+
         private void InitializeCooldownChecker()
         {
             _cooldownCheckTimer = new DispatcherTimer();
@@ -123,18 +136,19 @@ namespace SteamAccountManager.ViewModels
         {
             // 使用 ToList() 创建副本，因为我们可能会在循环中修改集合的成员
             var cooledDownAccounts = Accounts
-                .Where(acc => acc.Status == "冷却" && acc.CooldownExpiryDate.HasValue && acc.CooldownExpiryDate.Value <= DateTime.Now)
+                .Where(acc => acc.Cs2BanStatus == "⏳冷却⏳" && acc.Cs2CooldownExpiry.HasValue && acc.Cs2CooldownExpiry.Value <= DateTime.Now)
                 .ToList();
 
             if (cooledDownAccounts.Any())
             {
                 foreach (var account in cooledDownAccounts)
                 {
-                    account.Status = "正常"; // 这会自动清除 CooldownExpiryDate
+                    account.Cs2BanStatus = "✨正常✨"; // 这会自动清除 CooldownExpiryDate
                     StatusText = $"提示: 账号 '{account.Nickname ?? account.Username}' 的冷却时间已结束。";
                 }
                 // 状态已改变，保存到文件
                 _dataService.SaveAccounts(Accounts);
+                RebuildAccountsView();
             }
         }
         // --- CanExecute 谓词 ---
@@ -167,6 +181,7 @@ namespace SteamAccountManager.ViewModels
                 }
 
                 _dataService.SaveAccounts(Accounts);
+                RebuildAccountsView();
             }
         }
         private void EditAccount(object parameter)
@@ -201,14 +216,19 @@ namespace SteamAccountManager.ViewModels
                     // 所以对它属性的任何修改都会立即反映在 DataGrid 上。
                     originalAccount.Username = updatedAccount.Username;
                     originalAccount.Password = updatedAccount.Password;
-                    originalAccount.SteamID64 = updatedAccount.SteamID64; 
+                    originalAccount.SteamID64 = updatedAccount.SteamID64;
                     originalAccount.Nickname = updatedAccount.Nickname;
-                    originalAccount.Status = updatedAccount.Status;
-                    originalAccount.CooldownExpiryDate = updatedAccount.CooldownExpiryDate;
+                    originalAccount.Email = updatedAccount.Email;
+                    originalAccount.EmailPassword = updatedAccount.EmailPassword;
 
-                    // 将更新后的数据保存到 accounts.json 文件
+                    originalAccount.Cs2PrimeStatus = updatedAccount.Cs2PrimeStatus;
+                    originalAccount.Cs2BanStatus = updatedAccount.Cs2BanStatus;
+                    originalAccount.Cs2CooldownExpiry = updatedAccount.Cs2CooldownExpiry;
+                    originalAccount.IsVacBanned = updatedAccount.IsVacBanned;
+                    RebuildAccountsView();
                     _dataService.SaveAccounts(Accounts);
                     StatusText = $"账号 '{originalAccount.Nickname}' 已更新。";
+                    
                 }
             }
         }
@@ -222,6 +242,7 @@ namespace SteamAccountManager.ViewModels
             return false;
         }
 
+        
         private void DeleteAccount(object parameter)
         {
             if (!(parameter is IList selectedItems) || selectedItems.Count == 0) return;
@@ -230,27 +251,20 @@ namespace SteamAccountManager.ViewModels
 
             if (MessageBox.Show($"确定要删除选中的 {accountsToDelete.Count} 个账号吗？", "确认删除", MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes)
             {
-                // 1. 筛选出要保留的账号
                 var idsToDelete = new HashSet<Guid>(accountsToDelete.Select(a => a.Id));
                 var accountsToKeep = Accounts.Where(a => !idsToDelete.Contains(a.Id)).ToList();
 
-                // 2. 清空原始集合，这会触发一次 Reset 通知
                 Accounts.Clear();
-
-                // 3. 将保留的账号重新添加回去
                 foreach (var account in accountsToKeep)
                 {
                     Accounts.Add(account);
                 }
 
-                // 4. 保存和更新状态
                 _dataService.SaveAccounts(Accounts);
                 StatusText = $"成功删除了 {accountsToDelete.Count} 个账号。";
 
-                // 5. 虽然 CollectionView 会自动更新，但为了确保排序等完全正确，
-                //    在批量操作后手动刷新一次是好习惯。
-                //    我们使用之前最安全的 Dispatcher 方式。
-                SafeRefreshView();
+                // [终极修正] 调用重建方法，而不是刷新方法
+                RebuildAccountsView();
             }
         }
         private void Login(object parameter)
@@ -271,7 +285,7 @@ namespace SteamAccountManager.ViewModels
 
                 _dataService.SaveAccounts(Accounts);
                 StatusText = $"成功添加了 {dialog.ParsedAccounts.Count} 个账号。";
-                SafeRefreshView();
+                RebuildAccountsView();
             }
         }
         // --- API 相关操作 ---
@@ -298,6 +312,7 @@ namespace SteamAccountManager.ViewModels
                         {
                             account.Nickname = summary.PersonaName;
                             StatusText = $"成功更新 {summaries.Count} 个账号的昵称。({summary.PersonaName})";
+                            RebuildAccountsView();
                         }
                     }
                     _dataService.SaveAccounts(Accounts);
@@ -339,34 +354,26 @@ namespace SteamAccountManager.ViewModels
                     var banInfo = bans.FirstOrDefault(b => b.SteamId == account.SteamID64);
                     if (banInfo != null)
                     {
-                        // API 返回了该账号的信息，说明它至少有某种标记
-                        account.IsVacBanned = banInfo.VACBanned;
-                        account.NumberOfGameBans = banInfo.NumberOfGameBans;
-                        account.DaysSinceLastBan = banInfo.DaysSinceLastBan;
-
-                        // [实现最终需求] 正常/冷却/VAC 的判断逻辑
-                        if (banInfo.VACBanned || banInfo.NumberOfGameBans > 0)
+                        if (banInfo.VACBanned)
                         {
-                            account.Status = "VAC";
+                            account.Cs2BanStatus = "VAC";
                         }
                         else if (banInfo.EconomyBan == "probation")
                         {
-                            account.Status = "冷却";
+                            account.Cs2BanStatus = "冷却";
                         }
                         else
                         {
-                            account.Status = "正常";
+                            account.Cs2BanStatus = "正常";
                         }
                     }
                     else
                     {
-                        // API 没有返回该账号的信息，说明它是完全干净的
-                        account.Status = "正常";
-                        account.IsVacBanned = false;
-                        account.NumberOfGameBans = 0;
+                        account.Cs2BanStatus = "正常";
                     }
                 }
                 _dataService.SaveAccounts(Accounts);
+                RebuildAccountsView();
                 StatusText = "账号状态更新完成！";
             }
             catch (Exception ex)

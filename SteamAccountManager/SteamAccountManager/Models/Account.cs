@@ -5,7 +5,6 @@ using System.ComponentModel;
 
 namespace SteamAccountManager.Models
 {
-    // 实现 INotifyPropertyChanged 以便在 DataGrid 中实时更新
     public class Account : INotifyPropertyChanged
     {
         public event PropertyChangedEventHandler PropertyChanged;
@@ -14,179 +13,111 @@ namespace SteamAccountManager.Models
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }
 
-        private string _nickname;
-        private string _status;
-        private bool _isTwoFactorEnabled;
-        private string _steamID64;
-        private bool _isVacBanned;
-        private int _numberOfGameBans;
-        private int _daysSinceLastBan;
-        private DateTime? _cooldownExpiry;
-        private bool _isBanned;
-        private bool _isPrime;
-        private int _banReason;
-
+        // --- 基础信息 ---
         [JsonProperty("Id")]
         public Guid Id { get; set; } = Guid.NewGuid();
-
-        [JsonProperty("Nickname")]
-        public string Nickname
-        {
-            get => _nickname;
-            set { _nickname = value; OnPropertyChanged(nameof(Nickname)); }
-        }
-
         [JsonProperty("Username")]
         public string Username { get; set; }
-
         [JsonProperty("Password")]
         public string Password { get; set; }
-
+        [JsonProperty("Nickname")]
+        public string Nickname { get; set; }
         [JsonProperty("SteamId64")]
-        public string SteamID64
-        {
-            get => _steamID64;
-            set { _steamID64 = value; OnPropertyChanged(nameof(SteamID64)); }
-        }
-
-        [JsonProperty("IsBanned")]
-        public bool IsBanned
-        {
-            get => _isBanned;
-            set { _isBanned = value; OnPropertyChanged(nameof(IsBanned)); OnPropertyChanged(nameof(DisplayStatus)); OnPropertyChanged(nameof(SortPriority)); }
-        }
-
-        [JsonProperty("BanReason")]
-        public int BanReason // 0=正常, 1=冷却, 2=VAC/游戏封禁
-        {
-            get => _banReason;
-            set { _banReason = value; OnPropertyChanged(nameof(BanReason)); OnPropertyChanged(nameof(DisplayStatus)); OnPropertyChanged(nameof(SortPriority)); }
-        }
-
-        [JsonProperty("CooldownExpiry")]
-        public DateTime? CooldownExpiry
-        {
-            get => _cooldownExpiry;
-            set { _cooldownExpiry = value; OnPropertyChanged(nameof(CooldownExpiry)); OnPropertyChanged(nameof(DisplayStatus)); }
-        }
-
-        [JsonProperty("IsPrime")]
-        public bool IsPrime
-        {
-            get => _isPrime;
-            set { _isPrime = value; OnPropertyChanged(nameof(IsPrime)); }
-        }
-
+        public string SteamID64 { get; set; }
         [JsonProperty("Email")]
         public string Email { get; set; }
-
         [JsonProperty("EmailPassword")]
         public string EmailPassword { get; set; }
+        [JsonProperty("EmailUrl")]
+        public string EmailUrl { get; set; }
 
-        [JsonIgnore] // 这个属性由其他属性计算得出，不需要保存到 JSON
+        // --- CS2 相关状态字段 ---
+        private string _cs2PrimeStatus = "需升级⚠"; // "是", "否", "需升级"
+        private string _cs2BanStatus = "正常"; // "正常", "冷却", "游戏封禁", "VAC"
+        private DateTime? _cs2CooldownExpiry;
+
+        [JsonProperty("Cs2PrimeStatus")]
+        public string Cs2PrimeStatus
+        {
+            get => _cs2PrimeStatus;
+            set { _cs2PrimeStatus = value; OnPropertyChanged(nameof(Cs2PrimeStatus)); OnPropertyChanged(nameof(SortPriority)); }
+        }
+
+        [JsonProperty("Cs2BanStatus")]
+        public string Cs2BanStatus
+        {
+            get => _cs2BanStatus;
+            set
+            {
+                _cs2BanStatus = value;
+                if (_cs2BanStatus != "冷却")
+                {
+                    Cs2CooldownExpiry = null; // 如果不是冷却，清除日期
+                }
+                OnPropertyChanged(nameof(Cs2BanStatus));
+                OnPropertyChanged(nameof(DisplayStatus));
+                OnPropertyChanged(nameof(SortPriority));
+
+            }
+        }
+
+        [JsonProperty("Cs2CooldownExpiry")]
+        public DateTime? Cs2CooldownExpiry
+        {
+            get => _cs2CooldownExpiry;
+            set { _cs2CooldownExpiry = value; OnPropertyChanged(nameof(Cs2CooldownExpiry)); OnPropertyChanged(nameof(DisplayStatus)); }
+        }
+
+        // --- 通用 VAC 状态 ---
+        private bool _isVacBanned;
+        [JsonProperty("IsVacBanned")]
+        public bool IsVacBanned
+        {
+            get => _isVacBanned;
+            set { _isVacBanned = value; OnPropertyChanged(nameof(IsVacBanned)); }
+        }
+
+        // --- UI 显示与排序辅助属性 ---
+        [JsonIgnore]
         public string DisplayStatus
         {
             get
             {
-                if (!IsBanned) return "正常";
-
-                switch (BanReason)
+                if (Cs2BanStatus == "冷却")
                 {
-                    case 1: // 冷却
-                        if (CooldownExpiry.HasValue)
-                        {
-                            var timeLeft = CooldownExpiry.Value - DateTime.Now;
-                            if (timeLeft.TotalSeconds > 0)
-                            {
-                                return timeLeft.TotalDays >= 1
-                                    ? $"冷却 (剩 {Math.Ceiling(timeLeft.TotalDays)} 天)"
-                                    : $"冷却 (剩 {Math.Ceiling(timeLeft.TotalHours)} 小时)";
-                            }
-                            return "冷却 (已结束)";
-                        }
-                        return "冷却 (未设置日期)";
-                    case 2: // VAC/游戏封禁
-                        return "VAC";
-                    default:
-                        return "未知封禁";
+                    if (Cs2CooldownExpiry.HasValue)
+                    {
+                        var timeLeft = Cs2CooldownExpiry.Value - DateTime.Now;
+                        return timeLeft.TotalSeconds > 0
+                            ? $"冷却 (剩 {Math.Ceiling(timeLeft.TotalDays)} 天)"
+                            : "冷却 (已结束)";
+                    }
+                    return "冷却 (未设置)";
                 }
+                return Cs2BanStatus;
             }
         }
 
         [JsonIgnore]
-        public string Status
-        {
-            get
-            {
-                if (!IsBanned) return "正常";
-                switch (BanReason)
-                {
-                    case 1: return "冷却";
-                    case 2: return "VAC";
-                    default: return "未知";
-                }
-            }
-            set
-            {
-                switch (value)
-                {
-                    case "正常":
-                        IsBanned = false;
-                        BanReason = 0;
-                        CooldownExpiry = null;
-                        break;
-                    case "冷却":
-                        IsBanned = true;
-                        BanReason = 1;
-                        break;
-                    case "VAC":
-                        IsBanned = true;
-                        BanReason = 2;
-                        CooldownExpiry = null;
-                        break;
-                    default:
-                        IsBanned = false;
-                        BanReason = 0;
-                        break;
-                }
-                OnPropertyChanged(nameof(Status));
-            }
-        }
-        [JsonIgnore]
-        public DateTime? CooldownExpiryDate
-        {
-            get => CooldownExpiry;
-            set => CooldownExpiry = value;
-        }
-        [JsonIgnore]
-        public bool IsVacBanned { get => _isVacBanned; set { _isVacBanned = value; OnPropertyChanged(nameof(IsVacBanned)); } }
-        [JsonIgnore]
-        public int NumberOfGameBans { get => _numberOfGameBans; set { _numberOfGameBans = value; OnPropertyChanged(nameof(NumberOfGameBans)); } }
-        [JsonIgnore]
-        public int DaysSinceLastBan { get => _daysSinceLastBan; set { _daysSinceLastBan = value; OnPropertyChanged(nameof(DaysSinceLastBan)); } }
-
-        [JsonIgnore] // 不需要保存到文件
         public int SortPriority
         {
             get
             {
-                // 根据需求 "未知->0, 正常->1, 冷却->2, VAC->3"
-                // 数字小的排在前面 (Ascending)
-                if (!IsBanned) return 1; // 正常
+                // 排序: Prime优先, 风险等级其次
+                int primeScore = Cs2PrimeStatus == "是" ? 0 : 1;
 
-                switch (BanReason)
+                int banScore;
+                switch (Cs2BanStatus)
                 {
-                    case 1: return 2; // 冷却
-                    case 2: return 3; // VAC
-                    default: return 0; // 未知
+                    case "正常": banScore = 1; break;
+                    case "冷却": banScore = 2; break;
+                    case "游戏封禁": banScore = 3; break;
+                    case "VAC": banScore = 4; break;
+                    default: banScore = 0; break; // 未知
                 }
+                // 组合分数，Prime 权重更高
+                return primeScore * 10 + banScore;
             }
-        }
-        public Account()
-        {
-            // 为新字段提供默认值
-            Status = "未知";
-            SteamID64 = string.Empty;
         }
     }
 }

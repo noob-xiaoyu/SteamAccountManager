@@ -5,13 +5,14 @@
     <TargetFramework>net8.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <UseWPF>true</UseWPF>
+    <UseWPF>True</UseWPF>
     <ApplicationIcon>other\ico\icon.ico</ApplicationIcon>
     <Version>$(VersionPrefix)1.0.1</Version>
     <Authors>$()Hosino_xiaoyu</Authors>
     <PackageProjectUrl>https://github.com/noob-xiaoyu/SteamAccountManager</PackageProjectUrl>
     <RepositoryUrl>https://github.com/noob-xiaoyu/SteamAccountManager</RepositoryUrl>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <UseWindowsForms>False</UseWindowsForms>
   </PropertyGroup>
 
   <ItemGroup>
