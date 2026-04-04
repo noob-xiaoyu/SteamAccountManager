@@ -1,10 +1,28 @@
 body {
   margin: 0;
   padding: 0;
-  background-color: #2D2D30;
-  color: white;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
   overflow: hidden;
   user-select: none;
+}
+
+:root {
+  --bg-primary: #1e1e1e;
+  --bg-secondary: #252526;
+  --bg-tertiary: #2d2d30;
+  --accent-primary: #0078d4;
+  --accent-secondary: #106ebe;
+  --accent-dark: #005a9e;
+  --text-primary: #ffffff;
+  --text-secondary: #cccccc;
+  --text-muted: #808080;
+  --border-color: #3c3c3c;
+  --hover-bg: #37373d;
+  --selected-bg: #094771;
+  --success-bg: #2d5a27;
+  --danger-bg: #8b0000;
+  --shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
 * {

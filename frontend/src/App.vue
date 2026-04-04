@@ -6,13 +6,52 @@ const apiKey = ref(localStorage.getItem('steam_api_key') || '');
 const showApiKey = ref(false);
 const visiblePasswords = ref({}); // 记录每个账号密码的可见性
 
-// 切换特定账号密码的可见性
-const togglePassword = (username) => {
-  visiblePasswords.value[username] = !visiblePasswords.value[username];
+const togglePassword = (id) => {
+  visiblePasswords.value[id] = !visiblePasswords.value[id];
 };
 
 const showBulkAdd = ref(false);
 const showEditPanel = ref(false);
+const showSettings = ref(false);
+const showAbout = ref(false);
+const settingsMenuPos = ref({ x: 0, y: 0 });
+const isDarkTheme = ref(localStorage.getItem('theme') !== 'light');
+
+const toggleSettingsMenu = (event) => {
+  const btn = event.currentTarget;
+  const rect = btn.getBoundingClientRect();
+  settingsMenuPos.value = {
+    x: rect.left - 120,
+    y: rect.bottom
+  };
+  showSettings.value = !showSettings.value;
+};
+
+const closeSettingsMenu = () => {
+  showSettings.value = false;
+};
+
+const handleSettingsAction = (action) => {
+  closeSettingsMenu();
+  switch (action) {
+    case 'theme':
+      isDarkTheme.value = !isDarkTheme.value;
+      localStorage.setItem('theme', isDarkTheme.value ? 'dark' : 'light');
+      statusText.value = isDarkTheme.value ? '已切换到深色主题' : '已切换到浅色主题';
+      saveConfig();
+      break;
+    case 'about':
+      closeSettingsMenu();
+      showAbout.value = true;
+      break;
+  }
+};
+
+const toggleSidebar = () => {
+  isSidebarCollapsed.value = !isSidebarCollapsed.value;
+  saveConfig();
+};
+
 const selectedUsernames = ref(new Set());
 const editingAccount = ref(null);
 const cooldownDaysInput = ref(0); // 快捷设置冷却天数
@@ -21,8 +60,22 @@ const isBusy = ref(false);
 const statusText = ref('就绪');
 const currentTab = ref('all'); // 当前显示的页签: 'all' 或 'main'
 const isSidebarCollapsed = ref(false); // 侧边栏折叠状态
+const navMenuRef = ref(null);
 let cooldownTimer = null; // 定时检查冷却
 let lastSelectedUsername = null;
+let dragTimeout = null;
+
+const navIndicatorStyle = computed(() => {
+  const indexMap = { 'main': 0, 'perfect': 1, '5e': 2, 'all': 3 };
+  const index = indexMap[currentTab.value] ?? 0;
+  return {
+    transform: `translateY(${index * 40}px)`
+  };
+});
+
+const navigateTo = (tab) => {
+  currentTab.value = tab;
+};
 
 const contextMenu = ref({ show: false, x: 0, y: 0, account: null });
 
@@ -33,6 +86,8 @@ const filteredAccounts = computed(() => {
   if (currentTab.value === '5e') return accounts.value.filter(a => a.category === '5e');
   return accounts.value.filter(a => !a.category || a.category === 'normal');
 });
+
+const hasSelection = computed(() => selectedUsernames.value.size > 0);
 
 // 自动检测并恢复到期的冷却账号
 const checkCooldowns = () => {
@@ -160,10 +215,20 @@ onMounted(() => {
         statusText.value = `已加载 ${accounts.value.length} 个账号`;
         // 加载后立即检查一次
         checkCooldowns();
+      } else if (event.data.type === 'setConfig') {
+        const config = event.data.config || {};
+        if (config.sidebarCollapsed !== undefined) {
+          isSidebarCollapsed.value = config.sidebarCollapsed;
+        }
+        if (config.theme !== undefined) {
+          isDarkTheme.value = config.theme === 'dark';
+          localStorage.setItem('theme', config.theme);
+        }
       }
     });
-    // 向 C++ 请求账号数据
+    // 向 C++ 请求账号数据和配置
     window.chrome.webview.postMessage({ type: 'getAccounts' });
+    window.chrome.webview.postMessage({ type: 'getConfig' });
   } else {
     // 本地开发测试数据 (增加过期时间用于验证自动恢复)
     accounts.value = [
@@ -191,42 +256,77 @@ const saveAccounts = () => {
   if (window.chrome && window.chrome.webview) {
     // 使用深拷贝确保发送的是纯净的 JS 对象而非 Vue Proxy
     const data = JSON.parse(JSON.stringify(accounts.value));
-    window.chrome.webview.postMessage({ 
-      type: 'saveAccounts', 
-      accounts: data 
+    window.chrome.webview.postMessage({
+      type: 'saveAccounts',
+      accounts: data
+    });
+  }
+};
+
+const saveConfig = () => {
+  if (window.chrome && window.chrome.webview) {
+    const config = {
+      sidebarCollapsed: isSidebarCollapsed.value,
+      theme: isDarkTheme.value ? 'dark' : 'light'
+    };
+    window.chrome.webview.postMessage({
+      type: 'saveConfig',
+      config: config
     });
   }
 };
 
 const handleBulkAdd = () => {
   if (!bulkText.value.trim()) return;
-  
+
   const lines = bulkText.value.split('\n');
   const newEntries = [];
-  
+
   lines.forEach(line => {
     const trimmedLine = line.trim();
     if (!trimmedLine) return;
 
-    // 优先匹配 username----password 格式
     let username = '';
     let password = '';
     let alias = '';
 
+    // 检测分隔符：优先匹配 -- 分隔的格式
     if (trimmedLine.includes('----')) {
       const parts = trimmedLine.split('----');
       username = parts[0].trim();
       password = parts[1] ? parts[1].trim() : '';
       alias = username;
-    } else {
-      // 兼容空格、逗号等分隔符
-      const parts = trimmedLine.split(/[,，\s]+/);
+    } else if (trimmedLine.includes('---')) {
+      const parts = trimmedLine.split('---');
       username = parts[0].trim();
-      alias = parts[1] ? parts[1].trim() : username;
+      password = parts[1] ? parts[1].trim() : '';
+      alias = username;
+    } else if (trimmedLine.includes('--')) {
+      const parts = trimmedLine.split('--');
+      username = parts[0].trim();
+      password = parts[1] ? parts[1].trim() : '';
+      alias = username;
+    } else if (trimmedLine.includes('-')) {
+      const parts = trimmedLine.split('-');
+      username = parts[0].trim();
+      password = parts[1] ? parts[1].trim() : '';
+      alias = username;
+    } else if (trimmedLine.includes('，')) {
+      const parts = trimmedLine.split('，');
+      username = parts[0].trim();
+      password = parts[1] ? parts[1].trim() : '';
+      alias = username;
+    } else if (trimmedLine.includes(',')) {
+      const parts = trimmedLine.split(',');
+      username = parts[0].trim();
+      password = parts[1] ? parts[1].trim() : '';
+      alias = username;
+    } else {
+      username = trimmedLine;
+      alias = trimmedLine;
     }
-    
+
     if (username) {
-      // 使用时间戳+随机数生成唯一ID，允许同名账号存在
       const uniqueId = 'id_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
       newEntries.push({
         id: uniqueId,
@@ -311,6 +411,7 @@ const handleWindowControl = (action) => {
 const handleDragStart = (e) => {
   if (e.button === 0) {
     if (e.target.closest('.win-btn')) return;
+    if (e.detail === 2) return;
     if (window.chrome && window.chrome.webview) {
       window.chrome.webview.postMessage({ type: 'windowControl', action: 'startDrag' });
     }
@@ -452,6 +553,9 @@ const openContextMenu = (e, account) => {
 const closeContextMenu = (e) => {
   if (e && e.target.closest('.context-menu')) return;
   contextMenu.value.show = false;
+  if (!e || !e.target.closest('.settings-menu')) {
+    showSettings.value = false;
+  }
 };
 
 const handleContextAction = (action) => {
@@ -490,7 +594,7 @@ const handleContextAction = (action) => {
 </script>
 
 <template>
-  <div class="app-container" :class="{ 'is-busy': isBusy }">
+  <div class="app-container" :class="{ 'is-busy': isBusy, 'light-theme': !isDarkTheme }">
     <!-- 自定义标题栏 -->
     <div class="custom-titlebar" 
          @dblclick="handleWindowControl('maximize')"
@@ -499,14 +603,20 @@ const handleContextAction = (action) => {
         <span class="app-title">Steam Account Manager</span>
       </div>
       <div class="window-controls">
+        <button class="win-btn settings-btn" @click.stop="toggleSettingsMenu" @dblclick.stop title="设置">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+        </button>
         <button class="win-btn" @click="handleWindowControl('minimize')" title="最小化">
-          <svg viewBox="0 0 10 10"><path d="M0 5h10v1H0z" fill="white"/></svg>
+          <svg viewBox="0 0 10 10"><path d="M0 5h10v1H0z" fill="currentColor"/></svg>
         </button>
         <button class="win-btn" @click="handleWindowControl('maximize')" title="最大化/还原">
-          <svg viewBox="0 0 10 10"><path d="M0 0v10h10V0H0zm1 1h8v8H1V1z" fill="white"/></svg>
+          <svg viewBox="0 0 10 10"><path d="M0 0v10h10V0H0zm1 1h8v8H1V1z" fill="currentColor"/></svg>
         </button>
         <button class="win-btn close" @click="handleWindowControl('close')" title="关闭">
-          <svg viewBox="0 0 10 10"><path d="M0 0l10 10M10 0L0 10" stroke="white" stroke-width="1.2"/></svg>
+          <svg viewBox="0 0 10 10"><path d="M0 0l10 10M10 0L0 10" stroke="currentColor" stroke-width="1.2"/></svg>
         </button>
       </div>
     </div>
@@ -516,31 +626,29 @@ const handleContextAction = (action) => {
       <aside class="sidebar" :class="{ 'collapsed': isSidebarCollapsed }">
         <div class="sidebar-header">
           <span v-if="!isSidebarCollapsed">SAM</span>
-          <button @click="isSidebarCollapsed = !isSidebarCollapsed" class="toggle-sidebar-btn">
+          <button @click="toggleSidebar" class="toggle-sidebar-btn">
             {{ isSidebarCollapsed ? '→' : '←' }}
           </button>
         </div>
-        <nav class="nav-menu">
-          <button @click="currentTab = 'main'" :class="['nav-item', { active: currentTab === 'main' }]" :title="isSidebarCollapsed ? '主账号' : ''">
+        <nav class="nav-menu" ref="navMenuRef">
+          <div class="nav-indicator" :style="navIndicatorStyle"></div>
+          <button @click="navigateTo('main')" :class="['nav-item', { active: currentTab === 'main' }]" :title="isSidebarCollapsed ? '主账号' : ''">
             <span class="icon">⭐</span>
             <span class="label">主账号</span>
           </button>
-          <button @click="currentTab = 'perfect'" :class="['nav-item', { active: currentTab === 'perfect' }]" :title="isSidebarCollapsed ? '完美账号' : ''">
+          <button @click="navigateTo('perfect')" :class="['nav-item', { active: currentTab === 'perfect' }]" :title="isSidebarCollapsed ? '完美账号' : ''">
             <span class="icon"><img src="./assets/perfect.png" style="width: 16px; height: 16px; object-fit: contain; vertical-align: middle;" /></span>
             <span class="label">完美账号</span>
           </button>
-          <button @click="currentTab = '5e'" :class="['nav-item', { active: currentTab === '5e' }]" :title="isSidebarCollapsed ? '5E账号' : ''">
+          <button @click="navigateTo('5e')" :class="['nav-item', { active: currentTab === '5e' }]" :title="isSidebarCollapsed ? '5E账号' : ''">
             <span class="icon"><img src="./assets/5E.png" style="width: 16px; height: 16px; object-fit: contain; vertical-align: middle;" /></span>
             <span class="label">5E账号</span>
           </button>
-          <button @click="currentTab = 'all'" :class="['nav-item', { active: currentTab === 'all' }]" :title="isSidebarCollapsed ? '普通账号' : ''">
+          <button @click="navigateTo('all')" :class="['nav-item', { active: currentTab === 'all' }]" :title="isSidebarCollapsed ? '普通账号' : ''">
             <span class="icon">📋</span>
             <span class="label">普通账号</span>
           </button>
         </nav>
-        <div class="sidebar-footer" v-if="!isSidebarCollapsed">
-          v1.0.0
-        </div>
       </aside>
 
       <!-- 右侧主区域 -->
@@ -554,9 +662,9 @@ const handleContextAction = (action) => {
             <template v-else>📋 普通账号列表</template>
           </div>
           <div class="spacer"></div>
-          <button @click="showBulkAdd = !showBulkAdd; showEditPanel = false" class="btn primary">➕批量添加➕</button>
-          <button @click="handleEditSelected" class="btn">✏️更改选中✏️</button>
-          <button @click="handleBulkDelete" class="btn" style="color: #ff4d4f; border-color: #ff4d4f;">🗑️删除选中🗑️</button>
+          <button @click="showBulkAdd = !showBulkAdd; showEditPanel = false" class="btn btn-blue">➕批量添加➕</button>
+          <button @click="handleEditSelected" class="btn" :disabled="!hasSelection">✏️更改选中✏️</button>
+          <button @click="handleBulkDelete" class="btn btn-red" :disabled="!hasSelection">🗑️删除选中🗑️</button>
           <button v-if="apiKey" @click="statusText = '功能开发中...'" class="btn">🔄批量更新昵称 (API)🔄</button>
           <button v-if="apiKey" @click="statusText = '功能开发中...'" class="btn">🛡️更新封禁状态 (API)🛡️</button>
         </header>
@@ -599,12 +707,12 @@ const handleContextAction = (action) => {
                   </td>
                   <td>
                     <div class="input-wrapper table-pwd-wrapper">
-                      <input v-model="account.password" @change="saveAccounts" 
-                             :type="visiblePasswords[account.username] ? 'text' : 'password'" 
+                      <input v-model="account.password" @change="saveAccounts"
+                             :type="visiblePasswords[account.id] ? 'text' : 'password'"
                              autocomplete="new-password" spellcheck="false"
                              class="edit-input pwd" placeholder="无密码" />
-                      <button class="toggle-btn" @click="togglePassword(account.username)">
-                        <svg v-if="visiblePasswords[account.username]" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <button class="toggle-btn" @click="togglePassword(account.id)">
+                        <svg v-if="visiblePasswords[account.id]" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                           <path d="M2 12C2 12 5 5 12 5C19 5 22 12 22 12C22 12 19 19 12 19C5 19 2 12 2 12Z" />
                           <circle cx="12" cy="12" r="3" />
                           <line x1="3" y1="3" x2="21" y2="21" />
@@ -636,7 +744,7 @@ const handleContextAction = (action) => {
                   </td>
                 </tr>
                 <tr v-if="filteredAccounts.length === 0">
-                  <td colspan="6" style="text-align: center; padding: 40px; color: #888;">
+                  <td colspan="6" style="text-align: center; padding: 40px; color: var(--text-muted);">
                     {{ currentTab === 'main' ? '暂无主账号' : (currentTab === 'perfect' ? '暂无完美账号' : (currentTab === '5e' ? '暂无5E账号' : '暂无普通账号')) }}，请点击上方批量添加
                   </td>
                 </tr>
@@ -703,15 +811,15 @@ const handleContextAction = (action) => {
       <div v-if="accountsToDelete && accountsToDelete.length > 0" class="modal-overlay" @click.self="accountsToDelete = null">
         <div class="modal-dialog" style="width: 320px; text-align: center;">
           <h3 class="modal-title" style="color: #FF4D4F; margin-bottom: 10px;">⚠️ 确认删除</h3>
-          <p style="margin: 20px 0; font-size: 14px; color: #ccc;">
+          <p style="margin: 20px 0; font-size: 14px; color: var(--text-secondary);">
             <template v-if="accountsToDelete.length === 1">
               确定要删除账号 <br/><br/>
-              <strong style="color: white; font-size: 18px;">{{ accountsToDelete[0].username }}</strong> <br/><br/>
+              <strong style="color: var(--text-primary); font-size: 18px;">{{ accountsToDelete[0].username }}</strong> <br/><br/>
               吗？
             </template>
             <template v-else>
               确定要批量删除 <br/><br/>
-              <strong style="color: white; font-size: 18px;">已选中的 {{ accountsToDelete.length }} 个账号</strong> <br/><br/>
+              <strong style="color: var(--text-primary); font-size: 18px;">已选中的 {{ accountsToDelete.length }} 个账号</strong> <br/><br/>
               吗？
             </template>
           </p>
@@ -742,17 +850,53 @@ const handleContextAction = (action) => {
     <!-- 底部状态栏 -->
     <footer class="status-bar">
       <span>{{ statusText }}</span>
-      <span class="right">GitHub: noob-xiaoyu/SteamAccountManager</span>
+      <span class="right">v1.0.0</span>
     </footer>
+
+    <!-- 设置菜单 -->
+    <Transition name="context-menu">
+      <div v-if="showSettings"
+           class="context-menu settings-menu"
+           :style="{ left: settingsMenuPos.x + 'px', top: settingsMenuPos.y + 'px' }"
+           @click.stop>
+        <div class="context-menu-item" @click="handleSettingsAction('theme')">
+          {{ isDarkTheme ? '☀️ 浅色主题' : '🌙 深色主题' }}
+        </div>
+        <div class="context-menu-divider"></div>
+        <div class="context-menu-item" @click="handleSettingsAction('about')">ℹ️ 关于</div>
+      </div>
+    </Transition>
+
+    <!-- 弹窗：关于 -->
+    <Transition name="modal-fade">
+      <div v-if="showAbout" class="modal-overlay" @click.self="showAbout = false">
+        <div class="modal-dialog about-panel">
+          <h3 class="modal-title">ℹ️ 关于</h3>
+          <div class="about-content">
+            <div class="about-logo">📋</div>
+            <div class="about-name">Steam Account Manager</div>
+            <div class="about-version">版本 1.0.0</div>
+            <div class="about-divider"></div>
+            <div class="about-author">开发者: noob-xiaoyu</div>
+            <div class="about-desc">一个简洁高效的 Steam 账号管理工具</div>
+            <div class="about-link" @click="openExternalLink('https://github.com/noob-xiaoyu/SteamAccountManager')">
+              🌐 GitHub: noob-xiaoyu/SteamAccountManager
+            </div>
+          </div>
+          <div class="about-actions">
+            <button @click="showAbout = false" class="btn">关闭</button>
+          </div>
+        </div>
+      </div>
+    </Transition>
   </div>
 </template>
 
 <style scoped>
 /* 表格行选择样式 */
 .is-selected {
-  background-color: #3E3E42 !important;
-  /* 使用 outline 产生内描边效果，不会抖动且能显示完整边框 */
-  outline: 1px solid #007ACC;
+  background-color: var(--selected-bg) !important;
+  outline: 1px solid var(--accent-primary);
   outline-offset: -1px;
 }
 
@@ -773,13 +917,13 @@ const handleContextAction = (action) => {
 
 /* 弹窗主体 */
 .modal-dialog {
-  background-color: #333337;
-  border: 1px solid #444;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   padding: 20px;
   width: 500px;
   max-width: 90vw;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow);
 }
 
 .modal-title {
@@ -787,7 +931,7 @@ const handleContextAction = (action) => {
   margin-bottom: 20px;
   font-size: 16px;
   font-weight: 600;
-  color: #007ACC;
+  color: var(--accent-primary);
 }
 
 .edit-panel {
@@ -808,20 +952,20 @@ const handleContextAction = (action) => {
 
 .input-group label {
   font-size: 12px;
-  color: #aaa;
+  color: var(--text-secondary);
   margin-bottom: 5px;
 }
 
 .input-group input, .input-group select {
-  background-color: #252526;
-  border: 1px solid #454545;
-  color: white;
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
   padding: 8px;
   border-radius: 4px;
 }
 
 .input-group input:focus {
-  border-color: #007ACC;
+  border-color: var(--accent-primary);
   outline: none;
 }
 
@@ -862,8 +1006,8 @@ const handleContextAction = (action) => {
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: #2D2D30;
-  color: white;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   overflow: hidden;
   box-sizing: border-box;
@@ -872,13 +1016,13 @@ const handleContextAction = (action) => {
 /* 自定义标题栏 */
 .custom-titlebar {
   height: 32px;
-  background-color: #1e1e1e;
+  background-color: var(--bg-secondary);
   display: flex;
   justify-content: space-between;
   align-items: center;
   user-select: none;
   z-index: 9999;
-  border-bottom: 1px solid #333;
+  border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
 }
 
@@ -886,7 +1030,7 @@ const handleContextAction = (action) => {
   display: flex;
   align-items: center;
   padding-left: 12px;
-  color: #969696;
+  color: var(--text-muted);
   font-size: 12px;
   pointer-events: none;
 }
@@ -894,6 +1038,15 @@ const handleContextAction = (action) => {
 .window-controls {
   display: flex;
   height: 100%;
+}
+
+.settings-btn {
+  margin-left: 10px;
+}
+
+.settings-btn svg {
+  width: 16px;
+  height: 16px;
 }
 
 .win-btn {
@@ -909,7 +1062,7 @@ const handleContextAction = (action) => {
 }
 
 .win-btn:hover {
-  background-color: #333333;
+  background-color: var(--hover-bg);
 }
 
 .win-btn.close:hover {
@@ -930,13 +1083,13 @@ const handleContextAction = (action) => {
 /* 侧边栏样式 */
 .sidebar {
   width: 160px;
-  background-color: #252526;
-  border-right: 1px solid #333;
+  background-color: var(--bg-secondary);
+  border-right: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
   transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  overflow-x: hidden; /* 关键：宽度不足时隐藏溢出的文字内容 */
+  overflow-x: hidden;
 }
 
 .sidebar.collapsed {
@@ -947,12 +1100,12 @@ const handleContextAction = (action) => {
   padding: 0 15px;
   font-weight: bold;
   font-size: 18px;
-  color: #007ACC;
+  color: var(--accent-primary);
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-bottom: 1px solid #333;
-  height: 50px;
+  border-bottom: 1px solid var(--border-color);
+  height: 44.5px;
   white-space: nowrap;
   overflow: hidden;
 }
@@ -965,7 +1118,7 @@ const handleContextAction = (action) => {
 .toggle-sidebar-btn {
   background: transparent;
   border: none;
-  color: #888;
+  color: var(--text-muted);
   cursor: pointer;
   padding: 5px;
   font-size: 14px;
@@ -977,23 +1130,36 @@ const handleContextAction = (action) => {
 }
 
 .toggle-sidebar-btn:hover {
-  background-color: #3e3e42;
-  color: #fff;
+  background-color: var(--hover-bg);
+  color: var(--text-primary);
 }
 
 .nav-menu {
   flex: 1;
   padding: 10px 0;
+  position: relative;
+}
+
+.nav-indicator {
+  position: absolute;
+  top: 10px;
+  left: 0;
+  width: 3px;
+  height: 40px;
+  background-color: var(--accent-primary);
+  border-radius: 0 2px 2px 0;
+  transition: transform 0.2s ease;
+  z-index: 1;
 }
 
 .nav-item {
-  width: 160px; /* 固定宽度，与侧边栏展开宽度一致 */
+  width: 160px;
   height: 40px;
   display: flex;
   align-items: center;
   background: transparent;
   border: none;
-  color: #aaa;
+  color: var(--text-secondary);
   cursor: pointer;
   transition: background-color 0.2s, color 0.2s;
   font-size: 14px;
@@ -1002,19 +1168,18 @@ const handleContextAction = (action) => {
 }
 
 .nav-item:hover {
-  background-color: #2a2d2e;
-  color: #ccc;
+  background-color: var(--hover-bg);
+  color: var(--text-primary);
 }
 
 .nav-item.active {
-  background-color: #37373d;
-  color: #fff;
-  box-shadow: inset 3px 0 0 #007ACC;
+  background-color: var(--selected-bg);
+  color: var(--text-primary);
 }
 
 .nav-item .icon {
   font-size: 16px;
-  width: 50px; /* 宽度与折叠后的侧边栏一致 */
+  width: 50px;
   min-width: 50px;
   display: flex;
   justify-content: center;
@@ -1029,15 +1194,15 @@ const handleContextAction = (action) => {
 }
 
 .sidebar.collapsed .nav-item .label {
-  opacity: 0; /* 折叠时不仅被遮挡，还完全透明，增强视觉效果 */
+  opacity: 0;
 }
 
 .sidebar-footer {
   padding: 10px;
   text-align: center;
   font-size: 10px;
-  color: #555;
-  border-top: 1px solid #333;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border-color);
 }
 
 /* 主内容区 */
@@ -1051,11 +1216,11 @@ const handleContextAction = (action) => {
 .view-title {
   font-size: 14px;
   font-weight: 600;
-  color: #ddd;
-  white-space: nowrap;      /* 强制标题不换行 */
-  overflow: hidden;         /* 溢出隐藏 */
-  text-overflow: ellipsis;  /* 溢出显示省略号 */
-  max-width: 200px;         /* 限制最大宽度，防止挤压右侧按钮 */
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
 }
 
 .spacer {
@@ -1067,14 +1232,14 @@ const handleContextAction = (action) => {
   display: flex;
   gap: 10px;
   padding: 10px 15px;
-  background-color: #252526;
-  border-bottom: 1px solid #3e3e42;
+  background-color: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
 }
 
 /* 自定义标题栏 */
 .custom-titlebar {
   height: 32px;
-  background-color: #1e1e1e;
+  background-color: var(--bg-secondary);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -1086,7 +1251,7 @@ const handleContextAction = (action) => {
   display: flex;
   align-items: center;
   padding-left: 10px;
-  color: #969696;
+  color: var(--text-muted);
   font-size: 12px;
   pointer-events: none;
 }
@@ -1104,13 +1269,13 @@ const handleContextAction = (action) => {
   justify-content: center;
   background: transparent;
   border: none;
-  color: #ffffff;
+  color: var(--text-primary);
   cursor: pointer;
   transition: background-color 0.2s;
 }
 
 .win-btn:hover {
-  background-color: #333333;
+  background-color: var(--hover-bg);
 }
 
 .win-btn.close:hover {
@@ -1126,9 +1291,9 @@ const handleContextAction = (action) => {
 }
 
 .btn {
-  background-color: #3E3E42;
-  color: white;
-  border: 1px solid #555;
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
   padding: 0 12px;
   cursor: pointer;
   font-size: 13px;
@@ -1136,20 +1301,36 @@ const handleContextAction = (action) => {
   height: 24px;
   display: flex;
   align-items: center;
-  white-space: nowrap; /* 强制按钮文字不换行 */
-  flex-shrink: 0;      /* 防止按钮在空间不足时被挤压变形 */
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .btn:hover {
-  background-color: #555557;
+  background-color: var(--hover-bg);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
 }
 
 .btn.primary {
-  border-color: #007ACC;
+  border-color: var(--accent-primary);
 }
 
 .btn.success {
-  background-color: #2d5a27;
+  background-color: var(--success-bg);
+}
+
+.btn.btn-blue {
+  border-color: var(--accent-primary) !important;
+  color: var(--accent-primary) !important;
+}
+
+.btn.btn-red {
+  border-color: #ff5252 !important;
+  color: #ff5252 !important;
 }
 
 /* API Key 区 */
@@ -1160,8 +1341,8 @@ const handleContextAction = (action) => {
   align-items: center;
   gap: 10px;
   font-size: 13px;
-  background-color: #252526;
-  border-bottom: 1px solid #333;
+  background-color: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
 }
 
 .input-wrapper {
@@ -1175,10 +1356,10 @@ const handleContextAction = (action) => {
 }
 
 .api-key-area input {
-  background-color: #3E3E42;
-  border: 1px solid #555;
-  color: white;
-  padding: 0 30px 0 8px; /* 预留右侧图标空间 */
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  padding: 0 30px 0 8px;
   width: 100%;
   height: 24px;
 }
@@ -1188,7 +1369,7 @@ const handleContextAction = (action) => {
   right: 4px;
   background: none;
   border: none;
-  color: #888;
+  color: var(--text-muted);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -1198,7 +1379,7 @@ const handleContextAction = (action) => {
 }
 
 .toggle-btn:hover {
-  color: #CCC;
+  color: var(--text-secondary);
 }
 
 .table-pwd-wrapper {
@@ -1210,23 +1391,23 @@ const handleContextAction = (action) => {
 }
 
 .api-key-area a {
-  color: #007ACC;
+  color: var(--accent-primary);
   text-decoration: none;
 }
 
 /* 批量面板 */
 .bulk-panel {
   padding: 10px;
-  background-color: #333;
-  border-bottom: 1px solid #444;
+  background-color: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
 }
 
 .bulk-panel textarea {
   width: 100%;
   height: 80px;
-  background-color: #1e1e1e;
-  color: #dcdcdc;
-  border: 1px solid #555;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
   padding: 5px;
   resize: vertical;
   margin-bottom: 5px;
@@ -1237,12 +1418,12 @@ const handleContextAction = (action) => {
 }
 
 .bulk-panel textarea::-webkit-scrollbar-thumb {
-  background: #555;
+  background: var(--border-color);
   border-radius: 4px;
 }
 
 .bulk-panel textarea::-webkit-scrollbar-track {
-  background: #2d2d30;
+  background: var(--bg-primary);
 }
 
 .bulk-panel {
@@ -1291,28 +1472,29 @@ const handleContextAction = (action) => {
 
 .context-menu {
   position: fixed;
-  background-color: #2d2d30;
-  border: 1px solid #444;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   border-radius: 6px;
   padding: 5px 0;
   min-width: 160px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow);
   z-index: 10000;
 }
 
 .context-menu-item {
-  padding: 8px 14px;
+  padding: 8px;
   cursor: pointer;
   font-size: 13px;
-  color: #ccc;
+  color: var(--text-secondary);
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
 .context-menu-item:hover {
-  background-color: #094771;
-  color: white;
+  padding: 8px 8px;
+  background-color: var(--accent-dark);
+  color: var(--text-primary);
 }
 
 .context-menu-item.danger:hover {
@@ -1321,8 +1503,12 @@ const handleContextAction = (action) => {
 
 .context-menu-divider {
   height: 1px;
-  background-color: #444;
+  background-color: var(--border-color);
   margin: 5px 0;
+}
+
+.settings-menu {
+  min-width: 180px;
 }
 
 .context-menu-enter-active,
@@ -1345,43 +1531,42 @@ const handleContextAction = (action) => {
 /* 表格样式 */
 .table-container {
   flex: 1;
-  overflow: auto; /* 同时支持垂直和水平滚动 */
-  padding: 0 10px;
+  overflow: auto;
 }
 
 .data-grid {
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
-  table-layout: fixed; /* 固定布局，防止自动撑开 */
+  table-layout: fixed;
 }
 
 .data-grid th, .data-grid td {
-  white-space: nowrap;      /* 禁止换行 */
-  overflow: hidden;         /* 隐藏溢出 */
-  text-overflow: ellipsis;  /* 溢出显示省略号 */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   padding: 0 8px;
 }
 
 .data-grid th {
-  background-color: #3E3E42;
+  background-color: var(--bg-tertiary);
   text-align: left;
   height: 34px;
-  border: 1px solid #555;
+  border: 1px solid var(--border-color);
   position: sticky;
   top: 0;
 }
 
 .data-grid td {
   height: 34px;
-  border-bottom: 1px solid #444;
+  border-bottom: 1px solid var(--border-color);
   vertical-align: middle;
 }
 
 .edit-input {
   background: transparent;
   border: 1px solid transparent;
-  color: #ccc;
+  color: var(--text-secondary);
   padding: 2px 5px;
   width: 100%;
   box-sizing: border-box;
@@ -1390,9 +1575,9 @@ const handleContextAction = (action) => {
 }
 
 .edit-input:hover, .edit-input:focus {
-  background: #1e1e1e;
-  border-color: #555;
-  color: white;
+  background: var(--bg-primary);
+  border-color: var(--border-color);
+  color: var(--text-primary);
   outline: none;
 }
 
@@ -1401,7 +1586,7 @@ const handleContextAction = (action) => {
 }
 
 .data-grid tr:hover {
-  background-color: #3e3e42;
+  background-color: var(--hover-bg);
 }
 
 .status-badge {
@@ -1410,8 +1595,8 @@ const handleContextAction = (action) => {
   font-size: 11px;
 }
 
-.status-ok { background-color: #2d5a27; }
-.status-warn { background-color: #8b0000; }
+.status-ok { background-color: var(--success-bg); color: var(--text-primary); }
+.status-warn { background-color: var(--danger-bg); }
 
 .cooldown-text {
   font-size: 10px;
@@ -1421,7 +1606,7 @@ const handleContextAction = (action) => {
 }
 
 .link-cell {
-  color: #007ACC;
+  color: var(--accent-primary);
   cursor: pointer;
 }
 
@@ -1432,7 +1617,7 @@ const handleContextAction = (action) => {
   gap: 5px;
   align-items: center;
   justify-content: center;
-  height: 34px; /* 与 td 高度一致 */
+  height: 34px;
 }
 
 .btn-sm {
@@ -1442,19 +1627,20 @@ const handleContextAction = (action) => {
   border: none;
   border-radius: 2px;
   cursor: pointer;
-  color: white;
+  color: var(--text-primary);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.btn-sm.login { background-color: #007ACC; }
-.btn-sm.delete { background-color: #444; }
+.btn-sm.login { background-color: var(--accent-primary); }
+.btn-sm.delete { background-color: var(--bg-tertiary); }
 .btn-sm:hover { filter: brightness(1.2); }
 
 /* 状态栏 */
 .status-bar {
-  background-color: #007ACC;
+  background-color: var(--accent-primary);
+  color: var(--text-primary);
   padding: 2px 10px;
   display: flex;
   justify-content: space-between;
@@ -1467,11 +1653,269 @@ const handleContextAction = (action) => {
 }
 
 .table-container::-webkit-scrollbar-thumb {
-  background: #555;
+  background: var(--border-color);
 }
 
 .table-container::-webkit-scrollbar-track {
-  background: #2d2d30;
+  background: var(--bg-primary);
+}
+
+/* 浅色主题 */
+.light-theme {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f3f3f3;
+  --bg-tertiary: #e8e8e8;
+  --accent-primary: #0078d4;
+  --accent-secondary: #106ebe;
+  --accent-dark: #005a9e;
+  --text-primary: #1e1e1e;
+  --text-secondary: #333333;
+  --text-muted: #666666;
+  --border-color: #d4d4d4;
+  --hover-bg: #e1e1e1;
+  --selected-bg: #cce8f4;
+  --success-bg: #a8d8a8;
+  --danger-bg: #f0a8a8;
+  --shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.light-theme {
+  background-color: var(--bg-primary) !important;
+  color: var(--text-primary) !important;
+}
+
+.light-theme .custom-titlebar {
+  background-color: var(--bg-secondary) !important;
+  border-bottom-color: var(--border-color) !important;
+}
+
+.light-theme .title-content {
+  color: var(--text-muted) !important;
+}
+
+.light-theme .app-title {
+  color: var(--text-primary) !important;
+}
+
+.light-theme .sidebar {
+  background-color: var(--bg-secondary) !important;
+  border-right-color: var(--border-color) !important;
+}
+
+.light-theme .sidebar-header {
+  color: var(--accent-primary) !important;
+  border-bottom-color: var(--border-color) !important;
+}
+
+.light-theme .nav-item {
+  color: var(--text-secondary) !important;
+}
+
+.light-theme .nav-item:hover {
+  background-color: var(--hover-bg) !important;
+  color: var(--text-primary) !important;
+}
+
+.light-theme .nav-item.active {
+  background-color: var(--selected-bg) !important;
+  color: var(--text-primary) !important;
+}
+
+.light-theme .toolbar {
+  background-color: var(--bg-secondary) !important;
+  border-bottom-color: var(--border-color) !important;
+}
+
+.light-theme .view-title {
+  color: var(--text-primary) !important;
+}
+
+.light-theme .data-grid th {
+  background-color: var(--bg-tertiary) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-color) !important;
+}
+
+.light-theme .data-grid td {
+  background-color: var(--bg-primary) !important;
+  color: var(--text-primary) !important;
+  border-bottom-color: var(--border-color) !important;
+}
+
+.light-theme .data-grid tr:hover td {
+  background-color: var(--hover-bg) !important;
+}
+
+.light-theme .edit-input {
+  background: transparent !important;
+  color: var(--text-primary) !important;
+}
+
+.light-theme .edit-input:hover,
+.light-theme .edit-input:focus {
+  background: var(--bg-primary) !important;
+  border-color: var(--accent-primary) !important;
+  color: var(--text-primary) !important;
+}
+
+.light-theme .status-bar {
+  background-color: var(--accent-primary) !important;
+  color: var(--bg-primary) !important;
+}
+
+.light-theme .win-btn {
+  color: var(--text-primary) !important;
+}
+
+.light-theme .win-btn svg {
+  stroke: var(--text-primary) !important;
+}
+
+.light-theme .modal-overlay {
+  background-color: rgba(0, 0, 0, 0.4) !important;
+}
+
+.light-theme .modal-dialog {
+  background-color: var(--bg-primary) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-primary) !important;
+}
+
+.light-theme .modal-title {
+  color: var(--accent-primary) !important;
+}
+
+.light-theme .input-group label {
+  color: var(--text-secondary) !important;
+}
+
+.light-theme .input-group input,
+.light-theme .input-group select {
+  background-color: var(--bg-primary) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-primary) !important;
+}
+
+.light-theme .input-group input:focus {
+  border-color: var(--accent-primary) !important;
+}
+
+.light-theme .context-menu {
+  background-color: var(--bg-primary) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-primary) !important;
+}
+
+.light-theme .context-menu-item {
+  color: var(--text-primary) !important;
+}
+
+.light-theme .context-menu-item:hover {
+  background-color: var(--accent-secondary) !important;
+  color: var(--bg-primary) !important;
+}
+
+.light-theme .btn {
+  background-color: var(--bg-tertiary) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-color) !important;
+}
+
+.light-theme .btn:hover {
+  background-color: var(--hover-bg) !important;
+}
+
+.light-theme .btn.btn-blue {
+  border-color: #0078d4 !important;
+  color: #0078d4 !important;
+}
+
+.light-theme .btn.btn-red {
+  border-color: #d32f2f !important;
+  color: #d32f2f !important;
+}
+
+.light-theme .bulk-panel {
+  background-color: var(--bg-secondary) !important;
+  border-bottom-color: var(--border-color) !important;
+}
+
+.light-theme .bulk-panel textarea {
+  background-color: var(--bg-primary) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-color) !important;
+}
+
+.light-theme .settings-menu {
+  background-color: var(--bg-primary) !important;
+  border-color: var(--border-color) !important;
+}
+
+.light-theme .is-selected {
+  background-color: var(--selected-bg) !important;
+  outline-color: var(--accent-primary) !important;
+}
+
+.about-panel {
+  width: 360px;
+  text-align: center;
+}
+
+.about-content {
+  padding: 20px 0;
+}
+
+.about-logo {
+  font-size: 48px;
+  margin-bottom: 15px;
+}
+
+.about-name {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--accent-primary);
+  margin-bottom: 8px;
+}
+
+.about-version {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 15px;
+}
+
+.about-divider {
+  height: 1px;
+  background-color: var(--border-color);
+  margin: 15px 0;
+}
+
+.about-author {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.about-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 15px;
+}
+
+.about-link {
+  font-size: 13px;
+  color: var(--accent-primary);
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.about-link:hover {
+  background-color: var(--hover-bg);
+}
+
+.about-actions {
+  margin-top: 20px;
 }
 </style>
 

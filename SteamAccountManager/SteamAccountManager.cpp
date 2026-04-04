@@ -77,6 +77,9 @@ BOOL CALLBACK EnumChildProc(HWND hwnd, LPARAM lParam) {
 HINSTANCE hInst;                                // 当前实例
 WCHAR szTitle[MAX_LOADSTRING];                  // 标题栏文本
 WCHAR szWindowClass[MAX_LOADSTRING];            // 主窗口类名
+bool g_isDarkTheme = true;                      // 主题状态
+bool g_isHoveringWindowControls = false;        // 窗口控制按钮悬浮状态
+bool g_isTrackingMouse = false;                 // 鼠标追踪状态
 
 // WebView2 变量
 wil::com_ptr<ICoreWebView2Controller> webviewController;
@@ -145,31 +148,35 @@ bool IsSteamRunning() {
 
 void StartSteam(const std::wstring& username, const std::wstring& password) {
     std::wstring steamPath = GetSteamPath();
+
+    for (auto& c : steamPath) {
+        if (c == L'/') c = L'\\';
+    }
+
     if (!steamPath.empty()) {
-        // 获取 Steam 所在的目录作为工作目录
         std::filesystem::path p(steamPath);
         std::wstring steamDir = p.parent_path().wstring();
 
-        // 构建启动参数
-        std::wstring args = L" -no-browser -skipinitialbootstrap -nobootstrapupdate -noreactlogin -login " + username + L"";
-        
-        // 只有在密码不为空时才附加密码参数
+        std::wstring args = L"-no-browser -skipinitialbootstrap -nobootstrapupdate -noreactlogin -login " + username + L"";
+
         if (!password.empty()) {
             args += L" " + password + L"";
         }
 
-        // 使用 ShellExecuteW 启动，并指定工作目录
-        HINSTANCE result = ShellExecuteW(NULL, L"open", steamPath.c_str(), args.c_str(), steamDir.c_str(), SW_SHOWNORMAL);
-        
-        if ((INT_PTR)result <= 32) {
-            ShellExecuteW(NULL, L"open", steamPath.c_str(), NULL, steamDir.c_str(), SW_SHOWNORMAL);
-        }
+        std::wstring cmdLine = L"cmd /c start \"\" \"" + steamPath + L"\" " + args;
+
+        STARTUPINFOW si = { sizeof(si) };
+        PROCESS_INFORMATION pi = { 0 };
+        si.dwFlags = STARTF_USESHOWWINDOW;
+        si.wShowWindow = SW_HIDE;
+
+        CreateProcessW(NULL, cmdLine.data(), NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, steamDir.c_str(), &si, &pi);
+        if (pi.hProcess) CloseHandle(pi.hProcess);
+        if (pi.hThread) CloseHandle(pi.hThread);
     }
 }
 
 void KillSteam() {
-    if (!IsSteamRunning()) return;
-
     HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (hSnap == INVALID_HANDLE_VALUE) return;
 
@@ -182,8 +189,6 @@ void KillSteam() {
                 HANDLE hProc = OpenProcess(PROCESS_TERMINATE, FALSE, pe.th32ProcessID);
                 if (hProc) {
                     TerminateProcess(hProc, 0);
-                    // 等待进程退出，最多等待 5 秒
-                    WaitForSingleObject(hProc, 5000);
                     CloseHandle(hProc);
                 }
             }
@@ -198,6 +203,59 @@ std::wstring GetAccountsFilePath() {
     GetModuleFileNameW(NULL, path, MAX_PATH);
     std::filesystem::path p(path);
     return (p.parent_path() / L"accounts.json").wstring();
+}
+
+// 配置存储路径
+std::wstring GetConfigFilePath() {
+    WCHAR path[MAX_PATH];
+    GetModuleFileNameW(NULL, path, MAX_PATH);
+    std::filesystem::path p(path);
+    return (p.parent_path() / L"config.json").wstring();
+}
+
+// 读取配置
+json ReadConfigJson() {
+    try {
+        std::filesystem::path path = GetConfigFilePath();
+        if (!std::filesystem::exists(path) || std::filesystem::file_size(path) == 0) {
+            return json::object();
+        }
+
+        std::ifstream file(path.wstring(), std::ios::binary);
+        if (file.is_open()) {
+            try {
+                json j;
+                file >> j;
+                file.close();
+                return j;
+            }
+            catch (const std::exception& e) {
+                file.close();
+                return json::object();
+            }
+        }
+    }
+    catch (...) {
+        return json::object();
+    }
+    return json::object();
+}
+
+// 保存配置
+void SaveConfigJson(const json& j) {
+    try {
+        std::filesystem::path path = GetConfigFilePath();
+        std::ofstream file(path.wstring(), std::ios::out | std::ios::trunc | std::ios::binary);
+        if (file.is_open()) {
+            std::string content = j.dump(4);
+            file.write(content.c_str(), content.length());
+            file.close();
+        }
+    }
+    catch (const std::exception& e) {
+        std::wstring err = L"Config Save Error: " + StringToWString(e.what());
+        MessageBoxW(NULL, err.c_str(), L"Error", MB_OK);
+    }
 }
 
 json ReadAccountsJson() {
@@ -243,7 +301,7 @@ json ReadAccountsJson() {
                     }
                     return result;
                 }
-                
+
                 // 兼容旧版本格式
                 if (j.is_array()) {
                     for (auto& item : j) {
@@ -251,6 +309,10 @@ json ReadAccountsJson() {
                             item["category"] = "main";
                         } else {
                             item["category"] = "normal";
+                        }
+                        // 为没有 id 的旧账号生成唯一 id
+                        if (!item.contains("id") || item["id"].is_null()) {
+                            item["id"] = "legacy_" + std::to_string(std::hash<std::string>{}(item.value("username", "")));
                         }
                     }
                     return j;
@@ -370,7 +432,7 @@ ATOM MyRegisterClass(HINSTANCE hInstance)
     wcex.hInstance      = hInstance;
     wcex.hIcon          = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_STEAMACCOUNTMANAGER));
     wcex.hCursor        = LoadCursor(nullptr, IDC_ARROW);
-    wcex.hbrBackground  = CreateSolidBrush(RGB(45, 45, 48)); // 设为和 Vue 相同的背景色 #2D2D30
+    wcex.hbrBackground  = CreateSolidBrush(RGB(30, 30, 30)); // 深色主题背景 #1e1e1e
     wcex.lpszMenuName   = NULL; // Remove menu
     wcex.lpszClassName  = szWindowClass;
     wcex.hIconSm        = LoadIcon(wcex.hInstance, MAKEINTRESOURCE(IDI_SMALL));
@@ -381,6 +443,13 @@ ATOM MyRegisterClass(HINSTANCE hInstance)
 BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 {
    hInst = hInstance;
+
+   // 加载主题设置
+   json initConfig = ReadConfigJson();
+   if (initConfig.contains("theme")) {
+       std::string theme = initConfig.value("theme", "dark");
+       g_isDarkTheme = (theme != "light");
+   }
 
    // 1. 使用 WS_POPUP | WS_THICKFRAME 实现无边框 + 可缩放
    // WS_EX_APPWINDOW 确保在任务栏显示图标
@@ -539,6 +608,34 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
                                            SaveAccountsJson(j["accounts"]);
                                        }
                                    }
+                                   // 2.5 处理获取配置请求
+                                   else if (type == "getConfig") {
+                                       json config = ReadConfigJson();
+                                       json response = {
+                                           {"type", "setConfig"},
+                                           {"config", config}
+                                       };
+                                       std::wstring wResponse = StringToWString(response.dump());
+                                       webview->PostWebMessageAsJson(wResponse.c_str());
+                                   }
+                                   // 2.6 处理保存配置请求
+                                   else if (type == "saveConfig") {
+                                       if (j.contains("config")) {
+                                           SaveConfigJson(j["config"]);
+                                           // 更新主题设置并重绘窗口边框
+                                           if (j["config"].contains("theme")) {
+                                               std::string theme = j["config"]["theme"].get<std::string>();
+                                               bool newIsDark = (theme != "light");
+                                               if (g_isDarkTheme != newIsDark) {
+                                                   g_isDarkTheme = newIsDark;
+                                                   // 重绘窗口边框
+                                                   RECT rc;
+                                                   GetClientRect(hWnd, &rc);
+                                                   InvalidateRect(hWnd, &rc, TRUE);
+                                               }
+                                           }
+                                       }
+                                   }
                                    // 3. 处理登录请求
                                    else if (type == "login") {
                                        std::string username = j.value("username", "");
@@ -553,10 +650,28 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 
                                            // 开启后台线程执行登录序列
                                            std::thread([wUser, wPass]() {
+                                               LARGE_INTEGER freq, start, end, stepStart, stepEnd;
+                                               QueryPerformanceFrequency(&freq);
+                                               QueryPerformanceCounter(&start);
+                                               stepStart = start;
+
                                                KillSteam();
-                                               Sleep(2000); 
+                                               QueryPerformanceCounter(&stepEnd);
+                                               OutputDebugStringW((L"[Debug] KillSteam: " + std::to_wstring((double)(stepEnd.QuadPart - stepStart.QuadPart) / freq.QuadPart * 1000.0) + L" ms\n").c_str());
+                                               stepStart = stepEnd;
+
                                                SetAutoLoginUser(wUser);
+                                               QueryPerformanceCounter(&stepEnd);
+                                               OutputDebugStringW((L"[Debug] SetAutoLoginUser: " + std::to_wstring((double)(stepEnd.QuadPart - stepStart.QuadPart) / freq.QuadPart * 1000.0) + L" ms\n").c_str());
+                                               stepStart = stepEnd;
+
                                                StartSteam(wUser, wPass);
+                                               QueryPerformanceCounter(&end);
+                                               OutputDebugStringW((L"[Debug] StartSteam: " + std::to_wstring((double)(end.QuadPart - stepStart.QuadPart) / freq.QuadPart * 1000.0) + L" ms\n").c_str());
+
+                                               double elapsed = (double)(end.QuadPart - start.QuadPart) / freq.QuadPart * 1000.0;
+                                               std::wstring timingMsg = L"[Debug] Login completed in " + std::to_wstring(elapsed) + L" ms\n";
+                                               OutputDebugStringW(timingMsg.c_str());
                                            }).detach();
                                        }
                                    }
@@ -616,9 +731,6 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
-    static HBRUSH hBackBrush = CreateSolidBrush(RGB(45, 45, 48));
-    static HBRUSH hStatusBrush = CreateSolidBrush(RGB(0, 122, 204)); // #007ACC
-
     switch (message)
     {
     case WM_ERASEBKGND:
@@ -627,28 +739,83 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         RECT rc;
         GetClientRect(hWnd, &rc);
         int border = 4;
-        int statusBarHeight = 31; // Vue 状态栏的大致高度
+        int statusBarHeight = 31;
 
-        // 1. 填充顶部和主背景上方的左右感应区 (RGB(45, 45, 48))
-        RECT topRect = { rc.left, rc.top, rc.right, border };
-        RECT leftMainRect = { rc.left, border, border, rc.bottom - border - statusBarHeight };
-        RECT rightMainRect = { rc.right - border, border, rc.right, rc.bottom - border - statusBarHeight };
-        
-        FillRect(hdc, &topRect, hBackBrush);
-        FillRect(hdc, &leftMainRect, hBackBrush);
-        FillRect(hdc, &rightMainRect, hBackBrush);
+        // 根据主题选择颜色（匹配 Vue CSS 变量）
+        COLORREF backColor = g_isDarkTheme ? RGB(30, 30, 30) : RGB(243, 243, 243);    // 深色: #1e1e1e, 浅色: #f3f3f3
+        COLORREF statusColor = g_isDarkTheme ? RGB(0, 120, 212) : RGB(0, 120, 212); // #0078d4
+        COLORREF hoverColor = g_isDarkTheme ? RGB(64, 64, 64) : RGB(225, 225, 225);  // 悬浮色：深色 #404040, 浅色 #e1e1e1
+        COLORREF closeHoverColor = RGB(232, 17, 35);  // 关闭按钮悬浮色 #e81123
 
-        // 2. 填充底部和状态栏层级的左右感应区 (RGB(0, 122, 204))
-        // 这将使底部的蓝色条看起来完全贯穿左右
-        RECT leftStatusRect = { rc.left, rc.bottom - border - statusBarHeight, border, rc.bottom - border };
-        RECT rightStatusRect = { rc.right - border, rc.bottom - border - statusBarHeight, rc.right, rc.bottom - border };
-        RECT bottomRect = { rc.left, rc.bottom - border, rc.right, rc.bottom };
+        HBRUSH hBackBrush = CreateSolidBrush(backColor);
+        HBRUSH hStatusBrush = CreateSolidBrush(statusColor);
+        HBRUSH hHoverBrush = CreateSolidBrush(hoverColor);
+        HBRUSH hCloseHoverBrush = CreateSolidBrush(closeHoverColor);
 
-        FillRect(hdc, &leftStatusRect, hStatusBrush);
-        FillRect(hdc, &rightStatusRect, hStatusBrush);
+        // 填充顶部边框（分左右两部分：普通区域 + 窗口控制按钮区域悬浮色）
+        RECT topLeftRect = { rc.left, rc.top, rc.right - 140, border };
+        RECT topRightRect = { rc.right - 140, rc.top, rc.right, border };
+        FillRect(hdc, &topLeftRect, hBackBrush);
+        FillRect(hdc, &topRightRect, g_isHoveringWindowControls ? hCloseHoverBrush : hBackBrush);
+
+        // 填充左侧边框（分为上下两部分，中间是主区域）
+        RECT leftTopRect = { rc.left, border, border, rc.bottom - border - statusBarHeight };
+        RECT leftBottomRect = { rc.left, rc.bottom - border - statusBarHeight, rc.left + border, rc.bottom };
+        FillRect(hdc, &leftTopRect, hBackBrush);
+        FillRect(hdc, &leftBottomRect, hStatusBrush);
+
+        // 填充右侧边框（分为上下两部分）
+        RECT rightTopRect = { rc.right - border, border, rc.right, rc.bottom - border - statusBarHeight };
+        RECT rightBottomRect = { rc.right - border, rc.bottom - border - statusBarHeight, rc.right, rc.bottom };
+        FillRect(hdc, &rightTopRect, hBackBrush);
+        FillRect(hdc, &rightBottomRect, hStatusBrush);
+
+        // 填充底部边框（高度与侧边状态栏一致，确保角落过渡自然）
+        RECT bottomRect = { rc.left, rc.bottom - statusBarHeight, rc.right, rc.bottom };
         FillRect(hdc, &bottomRect, hStatusBrush);
 
+        DeleteObject(hBackBrush);
+        DeleteObject(hStatusBrush);
+        DeleteObject(hHoverBrush);
+        DeleteObject(hCloseHoverBrush);
+
         return 1;
+    }
+
+    case WM_MOUSEMOVE:
+    {
+        POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+        RECT rc;
+        GetClientRect(hWnd, &rc);
+
+        int windowControlsLeft = rc.right - 140;
+        bool isOverControls = (pt.x >= windowControlsLeft && pt.y <= 32);
+
+        if (isOverControls != g_isHoveringWindowControls) {
+            g_isHoveringWindowControls = isOverControls;
+            RECT hoverRect = { rc.right - 140, 0, rc.right, 4 };
+            InvalidateRect(hWnd, &hoverRect, FALSE);
+        }
+
+        if (!g_isTrackingMouse) {
+            TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, hWnd, 0 };
+            TrackMouseEvent(&tme);
+            g_isTrackingMouse = true;
+        }
+        break;
+    }
+
+    case WM_MOUSELEAVE:
+    {
+        g_isTrackingMouse = false;
+        if (g_isHoveringWindowControls) {
+            g_isHoveringWindowControls = false;
+            RECT rc;
+            GetClientRect(hWnd, &rc);
+            RECT hoverRect = { rc.right - 140, 0, rc.right, 4 };
+            InvalidateRect(hWnd, &hoverRect, FALSE);
+        }
+        break;
     }
 
     case WM_NCACTIVATE:
