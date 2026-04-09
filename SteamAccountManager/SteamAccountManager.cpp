@@ -98,7 +98,7 @@ std::wstring PathToUrl(std::wstring path) {
     }
     return L"file:///" + path;
 }
-
+// 设置自动登录用户名
 void SetAutoLoginUser(const std::wstring& username) {
     HKEY hKey;
     if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Valve\\Steam", 0, KEY_SET_VALUE, &hKey) == ERROR_SUCCESS) {
@@ -112,7 +112,7 @@ void SetAutoLoginUser(const std::wstring& username) {
         RegCloseKey(hKey);
     }
 }
-
+// 获取 Steam 安装路径
 std::wstring GetSteamPath() {
     HKEY hKey;
     WCHAR path[MAX_PATH];
@@ -126,7 +126,7 @@ std::wstring GetSteamPath() {
     }
     return L"";
 }
-
+// 检查 Steam 是否正在运行
 bool IsSteamRunning() {
     bool running = false;
     HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
@@ -145,7 +145,7 @@ bool IsSteamRunning() {
     }
     return running;
 }
-
+// 启动 Steam
 void StartSteam(const std::wstring& username, const std::wstring& password) {
     std::wstring steamPath = GetSteamPath();
 
@@ -175,7 +175,7 @@ void StartSteam(const std::wstring& username, const std::wstring& password) {
         if (pi.hThread) CloseHandle(pi.hThread);
     }
 }
-
+// 关闭 Steam
 void KillSteam() {
     HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (hSnap == INVALID_HANDLE_VALUE) return;
@@ -258,6 +258,7 @@ void SaveConfigJson(const json& j) {
     }
 }
 
+// 读取账号
 json ReadAccountsJson() {
     try {
         std::filesystem::path path = GetAccountsFilePath();
@@ -334,7 +335,7 @@ json ReadAccountsJson() {
     }
     return json::array();
 }
-
+// 保存账号
 void SaveAccountsJson(const json& j) {
     try {
         json fileData = json::object();
@@ -374,7 +375,7 @@ void SaveAccountsJson(const json& j) {
         MessageBoxW(NULL, err.c_str(), L"\u9519\u8bef", MB_OK);
     }
 }
-
+// 主窗口
 int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
                      _In_opt_ HINSTANCE hPrevInstance,
                      _In_ LPWSTR    lpCmdLine,
@@ -421,6 +422,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     return (int) msg.wParam;
 }
 
+// 注册窗口类
 ATOM MyRegisterClass(HINSTANCE hInstance)
 {
     WNDCLASSEXW wcex;
@@ -439,7 +441,7 @@ ATOM MyRegisterClass(HINSTANCE hInstance)
 
     return RegisterClassExW(&wcex);
 }
-
+// 初始化窗口
 BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 {
    hInst = hInstance;
@@ -502,13 +504,16 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
                    CloseHandle(hFile);
                } else {
                    MessageBoxW(NULL, L"无法释放 index.html 到 Temp 目录", L"文件写入错误", MB_OK);
+                   return 0;
                }
            }
        } else {
            MessageBoxW(NULL, L"无法加载 HTML 资源", L"资源错误", MB_OK);
+           return 0;
        }
    } else {
        MessageBoxW(NULL, L"找不到 IDR_HTML1 资源", L"资源错误", MB_OK);
+       return 0;
    }
 
    // 初始化 WebView2
@@ -554,10 +559,10 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 
                        // 移除之前的禁用滚动手脚...
 
-                       // 设置初始大小并显示 (留出 4 像素边框以优化缩放感应)
+                       // 设置初始大小并显示 (透明边框模式，填满整个窗口)
                        RECT rc;
                        GetClientRect(hWnd, &rc);
-                       int border = 4;
+                       int border = 0; // 透明边框模式：WebView2 填满整个窗口
                        RECT webviewRect = {
                            border,
                            border,
@@ -700,6 +705,39 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
                                            ReleaseCapture();
                                            SendMessage(hWnd, WM_NCLBUTTONDOWN, HTCAPTION, 0);
                                        }
+                                       // 窗口缩放控制
+                                       else if (action == "startResizeLeft") {
+                                           ReleaseCapture();
+                                           SendMessage(hWnd, WM_NCLBUTTONDOWN, HTLEFT, 0);
+                                       }
+                                       else if (action == "startResizeRight") {
+                                           ReleaseCapture();
+                                           SendMessage(hWnd, WM_NCLBUTTONDOWN, HTRIGHT, 0);
+                                       }
+                                       else if (action == "startResizeTop") {
+                                           ReleaseCapture();
+                                           SendMessage(hWnd, WM_NCLBUTTONDOWN, HTTOP, 0);
+                                       }
+                                       else if (action == "startResizeBottom") {
+                                           ReleaseCapture();
+                                           SendMessage(hWnd, WM_NCLBUTTONDOWN, HTBOTTOM, 0);
+                                       }
+                                       else if (action == "startResizeTopLeft") {
+                                           ReleaseCapture();
+                                           SendMessage(hWnd, WM_NCLBUTTONDOWN, HTTOPLEFT, 0);
+                                       }
+                                       else if (action == "startResizeTopRight") {
+                                           ReleaseCapture();
+                                           SendMessage(hWnd, WM_NCLBUTTONDOWN, HTTOPRIGHT, 0);
+                                       }
+                                       else if (action == "startResizeBottomLeft") {
+                                           ReleaseCapture();
+                                           SendMessage(hWnd, WM_NCLBUTTONDOWN, HTBOTTOMLEFT, 0);
+                                       }
+                                       else if (action == "startResizeBottomRight") {
+                                           ReleaseCapture();
+                                           SendMessage(hWnd, WM_NCLBUTTONDOWN, HTBOTTOMRIGHT, 0);
+                                       }
                                    }
                                }
                                catch (const std::exception& e) {
@@ -728,60 +766,30 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 
    return TRUE;
 }
-
+// 窗口过程函数
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
+    // 处理窗口消息
     switch (message)
     {
+    //  绘制窗口背景（透明边框版本）
     case WM_ERASEBKGND:
     {
         HDC hdc = (HDC)wParam;
         RECT rc;
         GetClientRect(hWnd, &rc);
-        int border = 4;
-        int statusBarHeight = 31;
-
-        // 根据主题选择颜色（匹配 Vue CSS 变量）
+        
+        // 根据主题选择背景颜色（匹配 Vue CSS 变量）
         COLORREF backColor = g_isDarkTheme ? RGB(30, 30, 30) : RGB(243, 243, 243);    // 深色: #1e1e1e, 浅色: #f3f3f3
-        COLORREF statusColor = g_isDarkTheme ? RGB(0, 120, 212) : RGB(0, 120, 212); // #0078d4
-        COLORREF hoverColor = g_isDarkTheme ? RGB(64, 64, 64) : RGB(225, 225, 225);  // 悬浮色：深色 #404040, 浅色 #e1e1e1
-        COLORREF closeHoverColor = RGB(232, 17, 35);  // 关闭按钮悬浮色 #e81123
-
         HBRUSH hBackBrush = CreateSolidBrush(backColor);
-        HBRUSH hStatusBrush = CreateSolidBrush(statusColor);
-        HBRUSH hHoverBrush = CreateSolidBrush(hoverColor);
-        HBRUSH hCloseHoverBrush = CreateSolidBrush(closeHoverColor);
-
-        // 填充顶部边框（分左右两部分：普通区域 + 窗口控制按钮区域悬浮色）
-        RECT topLeftRect = { rc.left, rc.top, rc.right - 140, border };
-        RECT topRightRect = { rc.right - 140, rc.top, rc.right, border };
-        FillRect(hdc, &topLeftRect, hBackBrush);
-        FillRect(hdc, &topRightRect, g_isHoveringWindowControls ? hCloseHoverBrush : hBackBrush);
-
-        // 填充左侧边框（分为上下两部分，中间是主区域）
-        RECT leftTopRect = { rc.left, border, border, rc.bottom - border - statusBarHeight };
-        RECT leftBottomRect = { rc.left, rc.bottom - border - statusBarHeight, rc.left + border, rc.bottom };
-        FillRect(hdc, &leftTopRect, hBackBrush);
-        FillRect(hdc, &leftBottomRect, hStatusBrush);
-
-        // 填充右侧边框（分为上下两部分）
-        RECT rightTopRect = { rc.right - border, border, rc.right, rc.bottom - border - statusBarHeight };
-        RECT rightBottomRect = { rc.right - border, rc.bottom - border - statusBarHeight, rc.right, rc.bottom };
-        FillRect(hdc, &rightTopRect, hBackBrush);
-        FillRect(hdc, &rightBottomRect, hStatusBrush);
-
-        // 填充底部边框（高度与侧边状态栏一致，确保角落过渡自然）
-        RECT bottomRect = { rc.left, rc.bottom - statusBarHeight, rc.right, rc.bottom };
-        FillRect(hdc, &bottomRect, hStatusBrush);
-
+        
+        // 填充整个客户区为背景色，确保在WebView2加载前显示统一背景
+        FillRect(hdc, &rc, hBackBrush);
+        
         DeleteObject(hBackBrush);
-        DeleteObject(hStatusBrush);
-        DeleteObject(hHoverBrush);
-        DeleteObject(hCloseHoverBrush);
-
         return 1;
     }
-
+    // 处理鼠标移动消息
     case WM_MOUSEMOVE:
     {
         POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
@@ -804,7 +812,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         }
         break;
     }
-
+    // 处理鼠标离开消息
     case WM_MOUSELEAVE:
     {
         g_isTrackingMouse = false;
@@ -817,11 +825,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         }
         break;
     }
-
+    // 处理窗口激活消息
     case WM_NCACTIVATE:
         // 阻止系统在激活/非激活时绘制默认标题栏/边框
         return TRUE;
-
+    // 处理鼠标双击消息
     case WM_LBUTTONDBLCLK:
     {
         POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
@@ -838,36 +846,17 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         }
         break;
     }
-
+    // 处理窗口大小调整消息
     case WM_NCCALCSIZE:
         // WS_POPUP 模式下不需要特殊处理 NC 区域，直接返回 0 即可
         return 0;
-
+    // 处理窗口大小调整消息
     case WM_NCHITTEST:
     {
-        POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
-        ScreenToClient(hWnd, &pt);
-
-        RECT rc;
-        GetClientRect(hWnd, &rc);
-
-        int border = 4; // 缩放感应区
-
-        // 判定四个角
-        if (pt.x < border && pt.y < border) return HTTOPLEFT;
-        if (pt.x > rc.right - border && pt.y < border) return HTTOPRIGHT;
-        if (pt.x < border && pt.y > rc.bottom - border) return HTBOTTOMLEFT;
-        if (pt.x > rc.right - border && pt.y > rc.bottom - border) return HTBOTTOMRIGHT;
-
-        // 判定四条边
-        if (pt.x < border) return HTLEFT;
-        if (pt.x > rc.right - border) return HTRIGHT;
-        if (pt.y < border) return HTTOP;
-        if (pt.y > rc.bottom - border) return HTBOTTOM;
-
+        // 前端检测鼠标位置并处理窗口缩放，此处始终返回HTCLIENT让前端处理
         return HTCLIENT;
     }
-
+    // 处理窗口大小调整消息
     case WM_GETMINMAXINFO:
     {
         LPMINMAXINFO lpMMI = (LPMINMAXINFO)lParam;
@@ -898,14 +887,14 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         }
         return 0; // 必须返回 0 表示已处理
     }
+    // 处理窗口大小调整消息
     case WM_SIZE:
         if (webviewController != nullptr) {
             RECT rc;
             GetClientRect(hWnd, &rc);
             
-            // 如果窗口已最大化，则 WebView2 填满整个窗口 (不需要 4 像素感应区)
-            // 如果是常规状态，保留 4 像素边距用于缩放
-            int border = IsZoomed(hWnd) ? 0 : 4;
+            // 透明边框模式：WebView2 填满整个窗口，缩放通过 WM_NCHITTEST 处理
+            int border = 0;
             
             RECT webviewRect = {
                 border,
@@ -919,6 +908,21 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             EnumChildWindows(hWnd, EnumChildProc, (LPARAM)hWnd);
         }
         break;
+    // 处理进入缩放/移动模式
+    case WM_ENTERSIZEMOVE:
+        // 缩放开始时重新子类化所有子窗口
+        if (webviewController != nullptr) {
+            EnumChildWindows(hWnd, EnumChildProc, (LPARAM)hWnd);
+        }
+        break;
+    // 处理退出缩放/移动模式
+    case WM_EXITSIZEMOVE:
+        // 缩放结束后重新子类化所有子窗口
+        if (webviewController != nullptr) {
+            EnumChildWindows(hWnd, EnumChildProc, (LPARAM)hWnd);
+        }
+        break;
+    // 处理窗口销毁消息
     case WM_DESTROY:
         PostQuitMessage(0);
         break;

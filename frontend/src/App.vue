@@ -65,6 +65,13 @@ let cooldownTimer = null; // 定时检查冷却
 let lastSelectedUsername = null;
 let dragTimeout = null;
 
+// 窗口缩放相关变量
+const resizeBorderSize = 8; // 边缘检测区域大小（像素）
+const mousePosition = ref({ x: 0, y: 0 });
+const isOnEdge = ref(false);
+const edgeType = ref(''); // 'left', 'right', 'top', 'bottom', 'top-left', 'top-right', 'bottom-left', 'bottom-right'
+const resizeCursor = ref('default');
+
 const navIndicatorStyle = computed(() => {
   const indexMap = { 'main': 0, 'perfect': 1, '5e': 2, 'all': 3 };
   const index = indexMap[currentTab.value] ?? 0;
@@ -412,9 +419,166 @@ const handleDragStart = (e) => {
   if (e.button === 0) {
     if (e.target.closest('.win-btn')) return;
     if (e.detail === 2) return;
+    
+    // 如果鼠标在边缘区域（包括标题栏内的左右边缘和顶部区域），不处理拖动（让缩放处理）
+    if (isOnEdge.value) {
+      return;
+    }
+    
+    // 阻止事件冒泡，避免触发外层的handleResizeStart
+    e.stopPropagation();
+    
     if (window.chrome && window.chrome.webview) {
       window.chrome.webview.postMessage({ type: 'windowControl', action: 'startDrag' });
     }
+  }
+};
+
+// 鼠标移动处理窗口缩放
+const handleMouseMove = (e) => {
+  mousePosition.value = { x: e.clientX, y: e.clientY };
+  
+  const width = window.innerWidth;
+  const height = window.innerHeight;
+  const border = resizeBorderSize;
+  const titleBarHeight = 32; // 标题栏高度
+  const titleBarTopAreaHeight = 4; // 标题栏顶部用于缩放的区域高度
+  
+  // 检查鼠标位置区域
+  const isInTitleBarTopArea = e.clientY < titleBarTopAreaHeight; // 标题栏顶部4px区域
+  const isInTitleBarBody = e.clientY >= titleBarTopAreaHeight && e.clientY < titleBarHeight; // 标题栏主体区域
+  const isInTitleBar = isInTitleBarTopArea || isInTitleBarBody; // 整个标题栏区域
+  
+  // 检查鼠标是否在边缘区域
+  const left = e.clientX < border;
+  const right = e.clientX > width - border;
+  const top = e.clientY < border;
+  const bottom = e.clientY > height - border;
+  
+  // 确定边缘类型和光标样式
+  let newEdgeType = '';
+  let newCursor = 'default';
+  
+  // 如果在标题栏顶部区域（4px），进行完整的边缘检测（包括顶部缩放）
+  if (isInTitleBarTopArea) {
+    if (top && left) {
+      newEdgeType = 'top-left';
+      newCursor = 'nwse-resize';
+    } else if (top && right) {
+      newEdgeType = 'top-right';
+      newCursor = 'nesw-resize';
+    } else if (bottom && left) {
+      newEdgeType = 'bottom-left';
+      newCursor = 'nesw-resize';
+    } else if (bottom && right) {
+      newEdgeType = 'bottom-right';
+      newCursor = 'nwse-resize';
+    } else if (left) {
+      newEdgeType = 'left';
+      newCursor = 'ew-resize';
+    } else if (right) {
+      newEdgeType = 'right';
+      newCursor = 'ew-resize';
+    } else if (top) {
+      newEdgeType = 'top';
+      newCursor = 'ns-resize';
+    } else if (bottom) {
+      newEdgeType = 'bottom';
+      newCursor = 'ns-resize';
+    }
+  }
+  // 如果在标题栏主体区域（28px），忽略顶部和顶部角落的边缘检测（允许拖动）
+  else if (isInTitleBarBody) {
+    if (bottom && left) {
+      newEdgeType = 'bottom-left';
+      newCursor = 'nesw-resize';
+    } else if (bottom && right) {
+      newEdgeType = 'bottom-right';
+      newCursor = 'nwse-resize';
+    } else if (left) {
+      newEdgeType = 'left';
+      newCursor = 'ew-resize';
+    } else if (right) {
+      newEdgeType = 'right';
+      newCursor = 'ew-resize';
+    } else if (bottom) {
+      newEdgeType = 'bottom';
+      newCursor = 'ns-resize';
+    }
+    // 标题栏主体区域内的顶部和顶部角落不视为边缘，保持默认光标
+  }
+  // 如果不在标题栏内，正常检测所有边缘
+  else {
+    if (top && left) {
+      newEdgeType = 'top-left';
+      newCursor = 'nwse-resize';
+    } else if (top && right) {
+      newEdgeType = 'top-right';
+      newCursor = 'nesw-resize';
+    } else if (bottom && left) {
+      newEdgeType = 'bottom-left';
+      newCursor = 'nesw-resize';
+    } else if (bottom && right) {
+      newEdgeType = 'bottom-right';
+      newCursor = 'nwse-resize';
+    } else if (left) {
+      newEdgeType = 'left';
+      newCursor = 'ew-resize';
+    } else if (right) {
+      newEdgeType = 'right';
+      newCursor = 'ew-resize';
+    } else if (top) {
+      newEdgeType = 'top';
+      newCursor = 'ns-resize';
+    } else if (bottom) {
+      newEdgeType = 'bottom';
+      newCursor = 'ns-resize';
+    }
+  }
+  
+  isOnEdge.value = newEdgeType !== '';
+  edgeType.value = newEdgeType;
+  resizeCursor.value = newCursor;
+};
+
+const handleMouseLeave = () => {
+  isOnEdge.value = false;
+  edgeType.value = '';
+  resizeCursor.value = 'default';
+};
+
+const handleResizeStart = (e) => {
+  if (e.button !== 0) return; // 只处理左键
+  if (!isOnEdge.value) return; // 不在边缘时不处理
+  
+  // 如果点击的是标题栏区域，检查是否在边缘区域（允许缩放）
+  if (e.target.closest('.custom-titlebar')) {
+    // 如果在标题栏内，但不是在边缘区域（left/right/top/top-left/top-right），则让handleDragStart处理拖动
+    if (edgeType.value !== 'left' && edgeType.value !== 'right' && 
+        edgeType.value !== 'top' && edgeType.value !== 'top-left' && edgeType.value !== 'top-right') {
+      return;
+    }
+    // 如果是在标题栏边缘区域，则继续处理缩放
+  }
+  
+  e.preventDefault();
+  e.stopPropagation();
+  
+  if (window.chrome && window.chrome.webview) {
+    let action = '';
+    switch (edgeType.value) {
+      case 'left': action = 'startResizeLeft'; break;
+      case 'right': action = 'startResizeRight'; break;
+      case 'top': action = 'startResizeTop'; break;
+      case 'bottom': action = 'startResizeBottom'; break;
+      case 'top-left': action = 'startResizeTopLeft'; break;
+      case 'top-right': action = 'startResizeTopRight'; break;
+      case 'bottom-left': action = 'startResizeBottomLeft'; break;
+      case 'bottom-right': action = 'startResizeBottomRight'; break;
+      default: return;
+    }
+    
+    window.chrome.webview.postMessage({ type: 'windowControl', action });
   }
 };
 
@@ -594,7 +758,11 @@ const handleContextAction = (action) => {
 </script>
 
 <template>
-  <div class="app-container" :class="{ 'is-busy': isBusy, 'light-theme': !isDarkTheme }">
+  <div class="app-container" :class="{ 'is-busy': isBusy, 'light-theme': !isDarkTheme }" 
+       @mousemove="handleMouseMove"
+       @mouseleave="handleMouseLeave"
+       @mousedown="handleResizeStart"
+       :style="{ cursor: resizeCursor }">
     <!-- 自定义标题栏 -->
     <div class="custom-titlebar" 
          @dblclick="handleWindowControl('maximize')"

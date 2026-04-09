@@ -27,9 +27,33 @@
     <ClInclude Include="SteamAccountManager.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="Helpers\JsonStorage.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Helpers\SteamHelper.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Helpers\StringHelper.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Helpers\WebViewHelper.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="SteamAccountManager.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="Helpers\JsonStorage.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="Helpers\SteamHelper.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="Helpers\StringHelper.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="Helpers\WebViewHelper.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>
