@@ -239,13 +239,13 @@ onMounted(() => {
   } else {
     // 本地开发测试数据 (增加过期时间用于验证自动恢复)
     accounts.value = [
-      { id: 'debug_1', username: 'testuser1', alias: '测试账号 1', status: '正常', steamId: '76561198000000001' },
+      { id: 'debug_1', username: 'testuser1', alias: '测试账号 1', status: '正常', steamId: '00000000000000001' },
       { 
         id: 'debug_2',
         username: 'testuser2', 
         alias: '测试账号 2', 
         status: '冷却中', 
-        steamId: '76561198000000002',
+        steamId: '00000000000000002',
         cooldownUntil: '2020-01-01T00:00' // 一个明显过期的时间
       }
     ];
