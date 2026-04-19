@@ -1043,7 +1043,7 @@ const handleContextAction = (action) => {
           <div class="about-content">
             <div class="about-logo">📋</div>
             <div class="about-name">Steam Account Manager</div>
-            <div class="about-version">版本 1.0.0</div>
+            <div class="about-version">版本 1.2.0</div>
             <div class="about-divider"></div>
             <div class="about-author">开发者: noob-xiaoyu</div>
             <div class="about-desc">一个简洁高效的 Steam 账号管理工具</div>
