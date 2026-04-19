@@ -5,12 +5,19 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -29,9 +36,28 @@ jobs:
         env:
           VITE_BASE_PATH: /${{ github.event.repository.name }}/
 
+      - name: Debug - List build output
+        run: |
+          echo "Build output directory contents:"
+          ls -la frontend/dist/
+          echo "Checking if index.html exists:"
+          if [ -f "frontend/dist/index.html" ]; then
+            echo "index.html found"
+            echo "File size: $(stat -c%s frontend/dist/index.html) bytes"
+          else
+            echo "ERROR: index.html not found!"
+          fi
+
+      - name: Setup Git
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git remote -v
+
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: frontend/dist
           publish_branch: gh-pages
+          force_orphan: true
